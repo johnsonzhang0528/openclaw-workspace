@@ -1,0 +1,29 @@
+[Unit]
+Description=OpenClaw Agent Monitoring System
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/.openclaw/workspace/agent-monitoring-system
+Environment="PYTHONPATH=/root/.openclaw/workspace/agent-monitoring-system"
+ExecStart=/usr/bin/python3 /root/.openclaw/workspace/agent-monitoring-system/simple_start.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=openclaw-monitor
+
+# 安全設定
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

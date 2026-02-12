@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "skills": {
+    "weather": {
+      "version": "1.0.0",
+      "installedAt": 1770790637990
+    },
+    "weather-pollen": {
+      "version": "1.0.3",
+      "installedAt": 1770790685539
+    }
+  }
+}

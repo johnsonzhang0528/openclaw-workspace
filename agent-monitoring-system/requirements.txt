@@ -1,0 +1,17 @@
+# Agent Monitoring System 依賴套件
+
+# 核心依賴
+python-dotenv>=1.0.0
+requests>=2.28.0
+
+# 開發依賴
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+
+# 可選依賴（用於擴展功能）
+# psutil>=5.9.0  # 更詳細的系統監控
+# sqlalchemy>=2.0.0  # ORM 支援
+# apscheduler>=3.10.0  # 進階排程

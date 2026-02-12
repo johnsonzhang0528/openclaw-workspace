@@ -1,0 +1,229 @@
+{
+  "version": "3.0_fixed",
+  "last_update": "2026-02-12T17:15:29.542389",
+  "monitoring_enabled": true,
+  "dashboard_config": {
+    "compact_mode": true,
+    "show_details": false,
+    "priority_order": [
+      "alerts",
+      "running_tasks",
+      "system_health",
+      "performance"
+    ],
+    "max_tasks_display": 5,
+    "refresh_interval_seconds": 30,
+    "telegram_enabled": true,
+    "auto_send": true
+  },
+  "task_statistics": {
+    "total": 9,
+    "running": 4,
+    "completed": 5,
+    "failed": 0,
+    "pending": 0,
+    "success_rate": 100,
+    "avg_duration_minutes": 18.2,
+    "today_completed": 5
+  },
+  "current_tasks": [
+    {
+      "id": "agent:main:subagent:ddd47fb2-6f27-4a8a-b2ae-b2ef524c79db",
+      "label": "任務進度監控系統開發",
+      "status": "running",
+      "start_time": "2026-02-12T14:26:00+08:00",
+      "duration_minutes": 27,
+      "progress": "狀態更新機制完成，正在測試整合",
+      "agent": "子代理 #1",
+      "priority": "high",
+      "last_check": "2026-02-12T14:53:00+08:00",
+      "health": "normal"
+    },
+    {
+      "id": "agent:main:subagent:27a3c030-ba6d-4777-bca7-59bb4d9852ff",
+      "label": "議題系統互動介面開發",
+      "status": "running",
+      "start_time": "2026-02-12T14:26:00+08:00",
+      "duration_minutes": 27,
+      "progress": "測試整合完成，優化使用者體驗",
+      "agent": "子代理 #2",
+      "priority": "medium",
+      "last_check": "2026-02-12T14:53:00+08:00",
+      "health": "normal"
+    },
+    {
+      "id": "agent:main:subagent:9f5b672b-528a-45ce-b9b8-d87b75bd1efb",
+      "label": "工作空間管理工具開發",
+      "status": "running",
+      "start_time": "2026-02-12T14:26:00+08:00",
+      "duration_minutes": 27,
+      "progress": "檔案編輯器開發中，目錄導覽完成",
+      "agent": "子代理 #3",
+      "priority": "medium",
+      "last_check": "2026-02-12T14:53:00+08:00",
+      "health": "normal"
+    },
+    {
+      "id": "agent:main:subagent:d4605b07-a72b-438c-a052-51a9ac7969cf",
+      "label": "建立監控儀表板技能",
+      "status": "running",
+      "start_time": "2026-02-12T14:22:00+08:00",
+      "duration_minutes": 31,
+      "progress": "監控儀表板技能開發中，自動更新機制建立",
+      "agent": "子代理 #4",
+      "priority": "high",
+      "last_check": "2026-02-12T14:53:00+08:00",
+      "health": "normal"
+    }
+  ],
+  "pending_tasks": [],
+  "recent_completed": [
+    {
+      "id": "agent:main:subagent:4799a610-8672-4b65-890f-9e7e7a335df9",
+      "label": "功能擴展進度檢查",
+      "status": "completed",
+      "duration_minutes": 5,
+      "completion_time": "2026-02-12T14:27:00+08:00",
+      "result": "success",
+      "summary": "功能擴展系統實施工作已基本完成",
+      "health": "good"
+    },
+    {
+      "id": "agent:main:subagent:be55727c-a80c-44e2-bc7b-a746bcc0bb79",
+      "label": "fix-agent-monitoring-service",
+      "status": "completed",
+      "duration_minutes": 8,
+      "completion_time": "2026-02-12T14:29:00+08:00",
+      "result": "success",
+      "summary": "Agent監控系統修復完成，服務正常運行",
+      "health": "good"
+    },
+    {
+      "id": "agent:main:subagent:3d8a76e5-d8d9-44c8-8cd6-cb6f7f5f8442",
+      "label": "enable-agent-monitoring",
+      "status": "completed",
+      "duration_minutes": 15,
+      "completion_time": "2026-02-12T14:31:00+08:00",
+      "result": "success",
+      "summary": "Agent監控系統啟用完成，自動更新機制建立",
+      "health": "good"
+    },
+    {
+      "id": "agent:main:cron:4cad9654-e0a5-4ac5-8d25-790e63379a6f",
+      "label": "監控儀表板自動更新",
+      "status": "completed",
+      "duration_minutes": 0,
+      "completion_time": "2026-02-12T14:48:28+08:00",
+      "result": "success",
+      "summary": "監控儀表板自動更新完成，系統狀態正常",
+      "health": "good"
+    },
+    {
+      "id": "agent:main:cron:4cad9654-e0a5-4ac5-8d25-790e63379a6f",
+      "label": "監控儀表板自動更新",
+      "status": "completed",
+      "duration_minutes": 0,
+      "completion_time": "2026-02-12T14:53:00+08:00",
+      "result": "success",
+      "summary": "監控儀表板自動更新完成，系統狀態正常",
+      "health": "good"
+    }
+  ],
+  "system_health": {
+    "cpu": {
+      "usage_percent": 1.6,
+      "load_average": [
+        0.08,
+        0.02,
+        0.01
+      ],
+      "cores": 4,
+      "temperature": null,
+      "health": "good"
+    },
+    "memory": {
+      "used_gb": 1.7,
+      "total_gb": 7.7,
+      "usage_percent": 22.5,
+      "available_gb": 6.0,
+      "health": "good"
+    },
+    "disk": {
+      "used_gb": 5.5,
+      "total_gb": 75,
+      "usage_percent": 8,
+      "free_gb": 67,
+      "health": "good"
+    },
+    "network": {
+      "status": "online",
+      "latency_ms": 12,
+      "health": "good"
+    },
+    "overall_health": "good",
+    "uptime_days": 2,
+    "uptime_hours": 14
+  },
+  "performance_metrics": {
+    "response_time_ms": 120,
+    "throughput_tasks_hour": 15,
+    "error_rate_percent": 0,
+    "availability_percent": 100,
+    "stability_score": 99
+  },
+  "alerts": {
+    "active": 0,
+    "last_alert": null,
+    "message": "系統正常"
+  },
+  "monitoring_history": {
+    "last_24h_updates": 49,
+    "successful_updates": 49,
+    "failed_updates": 0,
+    "average_update_duration_ms": 180
+  },
+  "telegram_integration": {
+    "enabled": true,
+    "last_sent": "2026-02-12T14:48:28+08:00",
+    "total_sent": 12,
+    "format": "compact"
+  },
+  "tasks": {
+    "total": 28,
+    "running": 3,
+    "completed": 13,
+    "failed": 0,
+    "pending": 12
+  },
+  "system_metrics": {
+    "cpu_percent": 0.0,
+    "memory_percent": 26.0198,
+    "disk_percent": 8.0,
+    "health": "good"
+  },
+  "diagnostics": {
+    "total_sessions_all": 28,
+    "total_sessions_main": 1,
+    "total_sessions_subagents": 27,
+    "calculation_fixed": true,
+    "fixed_at": "2026-02-12T16:15:27.385206",
+    "previous_error": "counted_all_sessions_instead_of_subagents_only"
+  },
+  "monitoring_config": {
+    "session_calculation": "active_only",
+    "active_threshold_minutes": 5,
+    "recent_threshold_hours": 1,
+    "ignore_old_sessions": true,
+    "max_sessions_alert": 30,
+    "auto_cleanup_hours": 24
+  },
+  "monitoring_system": "fixed_calculation",
+  "session_calculation": {
+    "method": "active_only",
+    "active_threshold_minutes": 5,
+    "alert_threshold": 30,
+    "current_active": 3,
+    "current_total": 41,
+    "has_alert": false
+  }
+}

@@ -1,0 +1,9 @@
+# 監控系統定期任務
+# 每5分鐘更新監控儀表板
+*/5 * * * * cd /root/.openclaw/workspace && python3 monitoring_cron.py >> /root/.openclaw/workspace/monitoring_cron.log 2>&1
+
+# 每天凌晨3點清理舊會話檔案
+0 3 * * * /root/.openclaw/workspace/cleanup_sessions.sh
+
+# 每小時檢查系統健康狀態
+0 * * * * cd /root/.openclaw/workspace && python3 simple_monitoring_dashboard.py >> /root/.openclaw/workspace/monitoring_hourly.log 2>&1

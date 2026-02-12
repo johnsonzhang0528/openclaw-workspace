@@ -1,0 +1,21 @@
+{
+  "id": "2a8f992d",
+  "title": "測試議題：網站SEO優化策略討論",
+  "status": "open",
+  "created_at": "2026-02-11T03:27:08.324142",
+  "updated_at": "2026-02-11T03:27:08.325913",
+  "last_discussion": "效能優化",
+  "discussions": [
+    {
+      "timestamp": "2026-02-11T03:27:08.324782",
+      "content": "需要分析關鍵字排名和點擊率",
+      "summary": "關鍵字分析"
+    },
+    {
+      "timestamp": "2026-02-11T03:27:08.325897",
+      "content": "還要考慮網站速度和行動裝置相容性",
+      "summary": "效能優化"
+    }
+  ],
+  "full_summary": ""
+}

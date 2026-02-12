@@ -1,0 +1,20 @@
+# {{skill_name}} 技能依賴
+
+# 核心依賴
+requests>=2.28.0
+psutil>=5.9.0
+
+# 開發依賴
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+
+# 可選依賴（根據需要取消註釋）
+# python-telegram-bot>=20.0.0
+# aiohttp>=3.8.0
+# sqlalchemy>=2.0.0
+# pandas>=2.0.0
+# numpy>=1.24.0
+# matplotlib>=3.7.0

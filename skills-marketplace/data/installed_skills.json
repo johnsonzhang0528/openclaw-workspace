@@ -1,0 +1,15 @@
+{
+  "installed": [
+    {
+      "slug": "weather",
+      "installed_at": "2026-02-11T14:17:18.032350",
+      "status": "installed"
+    },
+    {
+      "slug": "weather-pollen",
+      "installed_at": "2026-02-11T14:18:05.581095",
+      "status": "installed"
+    }
+  ],
+  "last_updated": "2026-02-11T14:18:05.581108"
+}

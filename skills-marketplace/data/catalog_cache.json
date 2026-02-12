@@ -1,0 +1,75 @@
+{
+  "skills": [
+    {
+      "slug": "weather",
+      "version": "v1.0.0",
+      "name": "Weather",
+      "description": "(0.448)",
+      "score": "0.0"
+    },
+    {
+      "slug": "weather-pollen",
+      "version": "v1.0.3",
+      "name": "Weather Pollen",
+      "description": "(0.400)",
+      "score": "0.0"
+    },
+    {
+      "slug": "qweather",
+      "version": "v1.0.0",
+      "name": "和风天气查询功能",
+      "description": "(0.395)",
+      "score": "0.0"
+    },
+    {
+      "slug": "weather-impact-analysis",
+      "version": "v1.0.0",
+      "name": "Weather Impact Analysis",
+      "description": "(0.389)",
+      "score": "0.0"
+    },
+    {
+      "slug": "weather-esp32",
+      "version": "v1.0.0",
+      "name": "weatheresp32",
+      "description": "(0.381)",
+      "score": "0.0"
+    },
+    {
+      "slug": "weather-api-1",
+      "version": "v1.0.1",
+      "name": "Weather Api 1",
+      "description": "(0.379)",
+      "score": "0.0"
+    },
+    {
+      "slug": "weathercli",
+      "version": "v0.1.0",
+      "name": "Weathercli",
+      "description": "(0.377)",
+      "score": "0.0"
+    },
+    {
+      "slug": "weather-api",
+      "version": "v1.0.0",
+      "name": "Weather Api",
+      "description": "(0.375)",
+      "score": "0.0"
+    },
+    {
+      "slug": "openmeteo-weather",
+      "version": "v1.0.0",
+      "name": "Openmeteo Weather",
+      "description": "(0.372)",
+      "score": "0.0"
+    },
+    {
+      "slug": "google-weather",
+      "version": "v1.1.0",
+      "name": "Google Weather",
+      "description": "(0.372)",
+      "score": "0.0"
+    }
+  ],
+  "last_sync": "2026-02-11T14:18:02.738873"
+}

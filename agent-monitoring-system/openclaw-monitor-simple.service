@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenClaw Agent Monitoring System
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/.openclaw/workspace/agent-monitoring-system
+ExecStart=/usr/bin/python3 simple_start.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=openclaw-monitor
+
+[Install]
+WantedBy=multi-user.target

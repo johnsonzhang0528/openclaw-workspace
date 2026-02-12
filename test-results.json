@@ -1,0 +1,115 @@
+{
+  "timestamp": "2026-02-11T10:16:46.773980",
+  "total_tests": 14,
+  "passed_tests": 14,
+  "failed_tests": 0,
+  "skills_tested": [
+    "skill-template"
+  ],
+  "details": {
+    "skill-template": {
+      "skill": "skill-template",
+      "directory": "/root/.openclaw/workspace/skill-template",
+      "exists": true,
+      "tests": [
+        {
+          "name": "檢查 SKILL.md",
+          "description": "技能文檔",
+          "file": "SKILL.md",
+          "passed": true,
+          "message": "SKILL.md 存在"
+        },
+        {
+          "name": "檢查 package.json",
+          "description": "技能配置",
+          "file": "package.json",
+          "passed": true,
+          "message": "package.json 存在"
+        },
+        {
+          "name": "檢查 main.py",
+          "description": "主程式",
+          "file": "main.py",
+          "passed": true,
+          "message": "main.py 存在"
+        },
+        {
+          "name": "檢查 package.json.name",
+          "description": "檢查 name 欄位",
+          "passed": true,
+          "message": "name 欄位存在"
+        },
+        {
+          "name": "檢查 package.json.version",
+          "description": "檢查 version 欄位",
+          "passed": true,
+          "message": "version 欄位存在"
+        },
+        {
+          "name": "檢查 package.json.description",
+          "description": "檢查 description 欄位",
+          "passed": true,
+          "message": "description 欄位存在"
+        },
+        {
+          "name": "檢查 package.json.openclaw",
+          "description": "檢查 openclaw 欄位",
+          "passed": true,
+          "message": "openclaw 欄位存在"
+        },
+        {
+          "name": "檢查 openclaw.skill",
+          "description": "檢查是否標記為技能",
+          "passed": true,
+          "message": "正確標記為技能"
+        },
+        {
+          "name": "檢查 utils.py 語法",
+          "description": "檢查 Python 語法",
+          "file": "utils.py",
+          "passed": true,
+          "message": "語法正確"
+        },
+        {
+          "name": "檢查 config.py 語法",
+          "description": "檢查 Python 語法",
+          "file": "config.py",
+          "passed": true,
+          "message": "語法正確"
+        },
+        {
+          "name": "檢查 telegram_ui.py 語法",
+          "description": "檢查 Python 語法",
+          "file": "telegram_ui.py",
+          "passed": true,
+          "message": "語法正確"
+        },
+        {
+          "name": "檢查 main.py 語法",
+          "description": "檢查 Python 語法",
+          "file": "main.py",
+          "passed": true,
+          "message": "語法正確"
+        },
+        {
+          "name": "檢查 tests/test_basic.py 語法",
+          "description": "檢查 Python 語法",
+          "file": "tests/test_basic.py",
+          "passed": true,
+          "message": "語法正確"
+        },
+        {
+          "name": "運行測試 tests/test_basic.py",
+          "description": "運行單元測試",
+          "file": "tests/test_basic.py",
+          "passed": true,
+          "message": "測試通過",
+          "output": "🧪 運行技能模板測試...\n✅ 技能結構測試通過\n✅ 導入測試通過\n✅ 配置測試通過\n\n📊 測試結果: 3/3 通過\n🎉 所有測試通過！\n"
+        }
+      ],
+      "total": 14,
+      "passed": 14,
+      "failed": 0
+    }
+  }
+}

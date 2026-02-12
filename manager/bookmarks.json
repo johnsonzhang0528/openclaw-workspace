@@ -1,0 +1,24 @@
+{
+  "bookmarks": [
+    {
+      "name": "記憶文件",
+      "path": "/root/.openclaw/workspace/memory",
+      "type": "directory",
+      "created": "2026-02-11T01:51:00Z"
+    },
+    {
+      "name": "問題追蹤",
+      "path": "/root/.openclaw/workspace/issues",
+      "type": "directory",
+      "created": "2026-02-11T01:51:00Z"
+    },
+    {
+      "name": "配置文件",
+      "path": "/root/.openclaw/openclaw.json",
+      "type": "file",
+      "created": "2026-02-11T01:51:00Z"
+    }
+  ],
+  "default_path": "/root/.openclaw/workspace",
+  "history_size": 50
+}
