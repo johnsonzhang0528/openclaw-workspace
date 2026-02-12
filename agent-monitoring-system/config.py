@@ -36,7 +36,7 @@ class MonitoringConfig:
 @dataclass
 class OpenClawConfig:
     """OpenClaw 配置"""
-    gateway_url: str = os.getenv("OPENCLAW_GATEWAY_URL", "http://localhost:8080")
+    gateway_url: str = os.getenv("OPENCLAW_GATEWAY_URL", "http://localhost:18789")
     api_key: str = os.getenv("OPENCLAW_API_KEY", "")
     timeout: int = int(os.getenv("OPENCLAW_TIMEOUT", "10"))
 
