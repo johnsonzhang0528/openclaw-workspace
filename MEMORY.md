@@ -1,7 +1,7 @@
 # MEMORY.md - 長期記憶
 
 ## 使用者設定
-- **名稱**：Leo (@REDACTED)
+- **名稱**：(見 USER.md)
 - **時區**：GMT+8 (Asia/Taipei)
 - **偏好語言**：繁體中文
 - **通訊平台**：Telegram
@@ -18,7 +18,7 @@
    - 單一訊息顯示決策結果
 
 ## 技術備註
-- 伺服器：Hetzner, Ubuntu 24.04, REDACTED_HOST
+- 伺服器：(見環境變數)
 - OpenClaw 工作目錄：/root/.openclaw/workspace
 - 當前模型：deepseek/deepseek-chat
 

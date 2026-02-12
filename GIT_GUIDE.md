@@ -3,8 +3,8 @@
 ## 基本設定
 
 Git 已配置完成：
-- **用戶名稱**：Owner
-- **郵箱**：redacted@example.com
+- **用戶名稱**：(見 git config)
+- **郵箱**：(見 git config)
 - **工作目錄**：/root/.openclaw/workspace
 
 ## 常用指令

@@ -314,7 +314,7 @@ pytest tests/
 
 ### 問題回報
 - GitHub Issues: [專案地址]
-- Telegram: @REDACTED
+- Telegram: (見管理員設定)
 - Email: [聯絡信箱]
 
 ### 文件資源

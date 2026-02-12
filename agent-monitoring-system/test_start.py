@@ -86,7 +86,7 @@ def send_final_test_notification():
 ✅ <b>啟用狀態</b>: 成功
 🕐 <b>完成時間</b>: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 🔧 <b>系統版本</b>: 1.0.0
-🤖 <b>Bot 名稱</b>: 蝦蝦 (@REDACTED_BOT)
+🤖 <b>Bot 名稱</b>: (見 .env)
 ──────────────────────────────
 <b>已啟用功能:</b>
 • ✅ Telegram 通知整合
