@@ -1,4 +1,21 @@
+# ============================================
+# SECRETS & CREDENTIALS (最重要!)
+# ============================================
+.env
+.env.*
+*.env
+.env.backup
+.env.test_backup
+secrets.json
+*.secret
+*.key
+*.pem
+*.p12
+*.pfx
+
+# ============================================
 # Python
+# ============================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -26,15 +43,21 @@ env/
 ENV/
 env.bak/
 venv.bak/
+.venv/
 
-# IDE
+# ============================================
+# IDE & Editor
+# ============================================
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+*.sublime-*
 
+# ============================================
 # OS
+# ============================================
 .DS_Store
 .DS_Store?
 ._*
@@ -42,19 +65,28 @@ venv.bak/
 .Trashes
 ehthumbs.db
 Thumbs.db
+desktop.ini
 
+# ============================================
 # Logs
+# ============================================
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+cleanup.log
+latest_*.txt
 
-# Database files
+# ============================================
+# Database
+# ============================================
 *.db
 *.sqlite
 *.sqlite3
 
-# OpenClaw specific
+# ============================================
+# OpenClaw runtime state (動態生成不追蹤)
+# ============================================
 memory/*.md
 issues/*.json
 issues_index.json
@@ -63,21 +95,32 @@ development-progress.json
 test-results.json
 monitoring-state.json
 monitoring_config.json
-latest_*.txt
-cleanup.log
+manager/bookmarks.json
+manager/history.json
+skills-marketplace/data/
+skills-marketplace/config.json
 
-# Temporary files
+# ============================================
+# Node.js
+# ============================================
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# ============================================
+# Temporary & Backup
+# ============================================
 *.tmp
 *.temp
+*.bak
+*.backup
+*.old
+*.orig
 
-# Config files with secrets
-.env
-.env.*
-*.env
-config.json
-secrets.json
-
-# Media files
+# ============================================
+# Media
+# ============================================
 *.mp3
 *.wav
 *.ogg
@@ -89,12 +132,9 @@ secrets.json
 *.png
 *.gif
 
-# Backup files
-*.bak
-*.backup
-*.old
-
-# System files
+# ============================================
+# System
+# ============================================
 *.pid
 *.lock
 *.pid.lock
