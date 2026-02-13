@@ -26,6 +26,25 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
+# ─── 多租戶整合 ─────────────────────────────────────────────
+# 延遲匯入以避免循環依賴，在 main() 中實際載入
+_tenant_manager = None
+_rbac_manager = None
+
+def _get_tenant_manager():
+    global _tenant_manager
+    if _tenant_manager is None:
+        from tenant_manager import TenantManager
+        _tenant_manager = TenantManager()
+    return _tenant_manager
+
+def _get_rbac_manager():
+    global _rbac_manager
+    if _rbac_manager is None:
+        from rbac import RBACManager
+        _rbac_manager = RBACManager()
+    return _rbac_manager
+
 # ─── 常數 ──────────────────────────────────────────────────
 
 TZ_GMT8 = timezone(timedelta(hours=8))
@@ -393,7 +412,9 @@ class AlertEvent:
             self.timestamp = now_iso()
 
 
-def evaluate_alerts(snap: dict, state: dict) -> List[AlertEvent]:
+def evaluate_alerts(snap: dict, state: dict, thresholds: dict = None) -> List[AlertEvent]:
+    """評估告警。thresholds 可傳入租戶自訂閾值，預設使用全域閾值。"""
+    t = thresholds or THRESHOLDS
     events: List[AlertEvent] = []
 
     # Gateway down（僅在狀態轉換時）
@@ -409,42 +430,46 @@ def evaluate_alerts(snap: dict, state: dict) -> List[AlertEvent]:
 
     # CPU
     cpu = snap.get("cpu_percent", 0)
-    if cpu > THRESHOLDS["cpu_percent"]:
+    cpu_threshold = t.get("cpu_percent", 80)
+    if cpu > cpu_threshold:
         events.append(AlertEvent(
             alert_type="cpu_high",
             severity="critical" if cpu > 95 else "warning",
             title="⚠️ CPU 使用率過高",
-            detail=f"目前 CPU: <b>{cpu:.1f}%</b> (閾值: {THRESHOLDS['cpu_percent']}%)",
+            detail=f"目前 CPU: <b>{cpu:.1f}%</b> (閾值: {cpu_threshold}%)",
         ))
 
     # Memory
     mem = snap.get("memory_percent", 0)
-    if mem > THRESHOLDS["memory_percent"]:
+    mem_threshold = t.get("memory_percent", 85)
+    if mem > mem_threshold:
         events.append(AlertEvent(
             alert_type="memory_high",
             severity="critical" if mem > 95 else "warning",
             title="⚠️ 記憶體使用率過高",
-            detail=f"目前記憶體: <b>{mem:.1f}%</b> (閾值: {THRESHOLDS['memory_percent']}%)",
+            detail=f"目前記憶體: <b>{mem:.1f}%</b> (閾值: {mem_threshold}%)",
         ))
 
     # Disk
     disk = snap.get("disk_percent", 0)
-    if disk > THRESHOLDS["disk_percent"]:
+    disk_threshold = t.get("disk_percent", 90)
+    if disk > disk_threshold:
         events.append(AlertEvent(
             alert_type="disk_high",
             severity="critical" if disk > 95 else "warning",
             title="🗄️ 磁碟空間不足",
-            detail=f"目前磁碟使用: <b>{disk:.1f}%</b> (閾值: {THRESHOLDS['disk_percent']}%)",
+            detail=f"目前磁碟使用: <b>{disk:.1f}%</b> (閾值: {disk_threshold}%)",
         ))
 
     # Load
     load_val = snap.get("load_1m", 0)
-    if load_val > THRESHOLDS["load_avg_1m"]:
+    load_threshold = t.get("load_avg_1m", 6.0)
+    if load_val > load_threshold:
         events.append(AlertEvent(
             alert_type="load_high",
             severity="warning",
             title="📈 系統負載過高",
-            detail=f"1 分鐘負載: <b>{load_val:.2f}</b> (閾值: {THRESHOLDS['load_avg_1m']})",
+            detail=f"1 分鐘負載: <b>{load_val:.2f}</b> (閾值: {load_threshold})",
         ))
 
     # Cron 缺失
@@ -782,12 +807,13 @@ def _fmt_uptime(sec: int) -> str:
 # ─── 重啟按鈕處理 ────────────────────────────────────────
 
 def handle_restart_callbacks(sender: TelegramSender, state: dict):
-    """只在 Gateway 停止時處理重啟按鈕"""
+    """處理 Telegram 回呼按鈕（含 RBAC 權限驗證）"""
     last_update_id = state.get("last_update_id", 0)
     updates = sender.get_updates(offset=last_update_id + 1)
     if not updates:
         return
 
+    rbac = _get_rbac_manager()
     new_id = last_update_id
     for update in updates:
         uid = update.get("update_id", 0)
@@ -800,10 +826,27 @@ def handle_restart_callbacks(sender: TelegramSender, state: dict):
 
         cb_id = cq.get("id")
         cb_data = cq.get("data", "")
-        from_user = cq.get("from", {}).get("username", "unknown")
+        from_info = cq.get("from", {})
+        from_user_id = str(from_info.get("id", ""))
+        from_username = from_info.get("username", "unknown")
+        chat_id = str(cq.get("message", {}).get("chat", {}).get("id", sender.chat_id))
+        tenant_id = f"telegram:{chat_id}"
 
         if cb_data == "/restart":
-            print(f"🔄 收到來自 @{from_user} 的重啟請求")
+            # RBAC 權限檢查
+            perm = rbac.check_permission(from_user_id, tenant_id, "restart_gateway")
+            if not perm.allowed:
+                sender.answer_callback(cb_id, f"⛔ 權限不足: {perm.reason}")
+                # 審計拒絕
+                try:
+                    from audit import audit_permission_denied
+                    audit_permission_denied(tenant_id, from_user_id, from_username, "restart_gateway", perm.reason)
+                except Exception:
+                    pass
+                print(f"⛔ @{from_username} 重啟被拒: {perm.reason}")
+                continue
+
+            print(f"🔄 收到來自 @{from_username} 的重啟請求（已授權）")
             sender.answer_callback(cb_id, "正在重啟 Gateway...")
 
             env = os.environ.copy()
@@ -816,12 +859,20 @@ def handle_restart_callbacks(sender: TelegramSender, state: dict):
                 )
                 if r.returncode == 0:
                     sender.send("🔄 <b>Gateway 重啟中</b>\n請稍候約 1 分鐘，系統會自動發送重啟完成通知")
-                    # 重設自癒計數
                     reset_self_heal_on_recovery(state)
+                    result = "success"
                 else:
                     sender.send(f"❌ Gateway 重啟失敗\n{r.stderr}")
+                    result = "failed"
             except Exception as exc:
                 sender.send(f"❌ 執行重啟時發生錯誤: {exc}")
+                result = "error"
+            # 審計重啟操作
+            try:
+                from audit import audit_restart
+                audit_restart(tenant_id, from_user_id, from_username, "button", result)
+            except Exception:
+                pass
         else:
             sender.answer_callback(cb_id, "此功能需要 Gateway 運行")
 
@@ -841,118 +892,219 @@ def get_monitor_snapshot_text() -> str:
 def main() -> int:
     load_env()
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-    if not token or not chat_id:
-        print("❌ TELEGRAM_BOT_TOKEN 或 TELEGRAM_CHAT_ID 未設定")
+    if not token:
+        print("❌ TELEGRAM_BOT_TOKEN 未設定")
         return 1
 
-    state = load_state()
+    # ── 載入租戶 ──
+    tm = _get_tenant_manager()
+    rbac = _get_rbac_manager()  # 確保 RBAC 初始化（含遷移）
+    tenants = tm.get_active_tenants()
+    if not tenants:
+        # 回退：無租戶時用 .env 的 chat_id
+        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+        if chat_id:
+            tenants = [tm.register(chat_id, "Admin (Primary)")]
+        else:
+            print("❌ 無已註冊租戶且 TELEGRAM_CHAT_ID 未設定")
+            return 1
 
-    # ── 遷移舊狀態 ──
-    _migrate_legacy_state(state)
-
-    sender = TelegramSender(token, chat_id)
-
-    # ── 1. 平行採集 ──
+    # ── 1. 平行採集（全域一次）──
     t0 = time.monotonic()
     snap = collect_all_parallel()
     collect_ms = int((time.monotonic() - t0) * 1000)
     print(f"📡 採集完成 ({collect_ms}ms)")
 
-    # 讀取每日會話統計（繼承舊 dashboard 的 history）
-    snap["sessions_today"] = state.get("snapshot", {}).get("sessions_today", 0)
-    snap["sessions_completed"] = state.get("snapshot", {}).get("sessions_completed", 0)
-    snap["sessions_failed"] = state.get("snapshot", {}).get("sessions_failed", 0)
-
-    # ── 2. 健康分數 ──
+    # ── 2. 健康分數（全域一次）──
     score, grade = compute_health_score(snap)
 
-    # ── 3. 告警判斷 ──
-    alert_events = evaluate_alerts(snap, state)
+    # ── 3. 全域快照（向後相容 + /monitor）──
+    tm.save_global_snapshot(snap, score, grade)
+    # 同時寫入舊格式 monitoring_state.json（向後相容 monitor_snapshot.py）
+    _save_compat_global_state(snap, score, grade)
 
-    # Gateway 狀態追蹤
+    # ── 4. 全域自癒（Gateway 是系統資源，只做一次）──
     gw_now = snap.get("gateway_active", True)
-    gw_prev = state.get("gateway_prev_running", True)
+    global_heal_msg = None
+    primary_tenant = tenants[0]
+    primary_state = tm.load_tenant_state(primary_tenant)
+
+    if not gw_now:
+        global_heal_msg = try_self_heal_gateway(primary_state)
+        if global_heal_msg:
+            print(f"🔧 {global_heal_msg}")
+            record_error(primary_state, "self_heal", "gateway", global_heal_msg, severity="info")
+            try:
+                from audit import audit_log as _audit_global
+                _audit_global(primary_tenant.tenant_id, "self_heal", detail=global_heal_msg)
+            except Exception:
+                pass
+        # 處理全域回呼（getUpdates 全域唯一）
+        sender_for_callbacks = TelegramSender(token, primary_tenant.chat_id)
+        handle_restart_callbacks(sender_for_callbacks, primary_state)
 
     # 如果 Gateway 恢復，重設自癒計數
-    if gw_now and not gw_prev:
-        reset_self_heal_on_recovery(state)
+    if gw_now and not primary_state.get("gateway_prev_running", True):
+        reset_self_heal_on_recovery(primary_state)
 
-    # ── 4. 自癒 ──
-    heal_msg = None
-    if not gw_now:
-        heal_msg = try_self_heal_gateway(state)
-        if heal_msg:
-            print(f"🔧 {heal_msg}")
-            record_error(state, "self_heal", "gateway", heal_msg, severity="info")
+    tm.save_tenant_state(primary_tenant, primary_state)
 
-    # ── 5. 冷卻過濾並發送告警 ──
-    last_sent = state.setdefault("alerts", {}).setdefault("last_sent", {})
-    to_send = filter_cooled_alerts(alert_events, last_sent)
+    # ── 5. 逐租戶分發告警與儀表板 ──
+    total_alerts_sent = 0
+    for tenant in tenants:
+        sent = _process_tenant(token, tenant, tm, snap, score, grade, gw_now, global_heal_msg)
+        total_alerts_sent += sent
 
-    for evt in to_send:
-        severity_icon = "🚨" if evt.severity == "critical" else "⚠️"
-        text = (
-            f"{severity_icon} <b>系統警報</b>\n"
-            f"{'━' * 25}\n"
-            f"{evt.title}\n\n"
-            f"{evt.detail}\n\n"
-            f"<code>時間: {now_ts()} GMT+8</code>\n"
-            f"<code>嚴重度: {evt.severity.upper()}</code>\n"
-            f"<code>健康分數: {score}/100 ({grade})</code>"
-        )
-        if heal_msg:
-            text += f"\n\n🔧 <b>自癒:</b> {heal_msg}"
+    if total_alerts_sent == 0:
+        print(f"✅ 系統正常 (健康分數: {score}/{grade}, 租戶: {len(tenants)})")
+    else:
+        print(f"🔔 共發送 {total_alerts_sent} 則警報 (健康分數: {score}/{grade}, 租戶: {len(tenants)})")
+    return 0
 
-        keyboard = build_keyboard(evt.alert_type)
-        msg_id = sender.send(text, keyboard=keyboard)
-        if msg_id:
-            last_sent[evt.alert_type] = now_iso()
-            print(f"🔔 已發送 {evt.alert_type} 警報 (msg_id={msg_id})")
 
-        # 記錄到錯誤追蹤
-        record_error(state, evt.alert_type, "system", evt.detail, severity=evt.severity)
+def _process_tenant(token: str, tenant, tm, snap: dict, score: int, grade: str,
+                    gw_now: bool, global_heal_msg: str = None) -> int:
+    """
+    處理單一租戶：告警 + 儀表板更新。
+    自癒已在全域 main() 中處理，此處僅負責告警分發與儀表板。
+    回傳發送的告警數量。
+    """
+    # 租戶設定檢查
+    if not tenant.get_setting("alerts_enabled", True) and not tenant.get_setting("dashboard_enabled", True):
+        return 0
 
-    # 更新活躍告警列表
-    active_alerts = [asdict(e) if hasattr(e, '__dataclass_fields__') else
-                     {"alert_type": e.alert_type, "severity": e.severity, "title": e.title, "timestamp": e.timestamp}
-                     for e in alert_events]
-    state.setdefault("alerts", {})["active_alerts"] = active_alerts
+    state = tm.load_tenant_state(tenant)
+    sender = TelegramSender(token, tenant.chat_id)
+    alerts_sent = 0
 
-    # ── 6. Gateway 停止時處理重啟按鈕 ──
-    if not gw_now:
-        handle_restart_callbacks(sender, state)
+    # 讀取每日會話統計
+    snap_with_sessions = dict(snap)
+    snap_with_sessions["sessions_today"] = state.get("snapshot", {}).get("sessions_today", 0)
+    snap_with_sessions["sessions_completed"] = state.get("snapshot", {}).get("sessions_completed", 0)
+    snap_with_sessions["sessions_failed"] = state.get("snapshot", {}).get("sessions_failed", 0)
 
-    # ── 7. 更新儀表板訊息 ──
-    state["snapshot"] = snap
-    state["health_score"] = score
-    state["health_grade"] = grade
-    state["last_updated"] = now_ts()
-    state["gateway_prev_running"] = gw_now
+    # ── 告警 ──
+    if tenant.get_setting("alerts_enabled", True):
+        # 使用租戶自訂閾值
+        tenant_thresholds = {
+            "cpu_percent": tenant.get_setting("thresholds.cpu_percent", THRESHOLDS["cpu_percent"]),
+            "memory_percent": tenant.get_setting("thresholds.memory_percent", THRESHOLDS["memory_percent"]),
+            "disk_percent": tenant.get_setting("thresholds.disk_percent", THRESHOLDS["disk_percent"]),
+            "load_avg_1m": tenant.get_setting("thresholds.load_avg_1m", THRESHOLDS["load_avg_1m"]),
+        }
+        alert_events = evaluate_alerts(snap_with_sessions, state, thresholds=tenant_thresholds)
 
-    dashboard_text = render_dashboard(state)
-    msg_id = state.get("dashboard_message_id")
-    try:
-        if msg_id:
-            ok = sender.edit(int(msg_id), dashboard_text)
-            if not ok:
+        # 使用租戶自訂冷卻時間
+        tenant_cooldowns = {}
+        for alert_type in ALERT_COOLDOWN:
+            tenant_cooldowns[alert_type] = tenant.get_setting(
+                f"alert_cooldowns.{alert_type}", ALERT_COOLDOWN[alert_type]
+            )
+
+        last_sent = state.setdefault("alerts", {}).setdefault("last_sent", {})
+        to_send = _filter_with_tenant_cooldowns(alert_events, last_sent, tenant_cooldowns)
+
+        for evt in to_send:
+            severity_icon = "🚨" if evt.severity == "critical" else "⚠️"
+            text = (
+                f"{severity_icon} <b>系統警報</b>\n"
+                f"{'━' * 25}\n"
+                f"{evt.title}\n\n"
+                f"{evt.detail}\n\n"
+                f"<code>時間: {now_ts()} GMT+8</code>\n"
+                f"<code>嚴重度: {evt.severity.upper()}</code>\n"
+                f"<code>健康分數: {score}/100 ({grade})</code>"
+            )
+            if global_heal_msg:
+                text += f"\n\n🔧 <b>自癒:</b> {global_heal_msg}"
+
+            keyboard = build_keyboard(evt.alert_type) if tenant.get_setting("features.restart_button", True) else []
+            msg_id = sender.send(text, keyboard=keyboard)
+            if msg_id:
+                last_sent[evt.alert_type] = now_iso()
+                alerts_sent += 1
+
+            record_error(state, evt.alert_type, "system", evt.detail, severity=evt.severity)
+
+        active_alerts = [
+            {"alert_type": e.alert_type, "severity": e.severity, "title": e.title, "timestamp": e.timestamp}
+            for e in alert_events
+        ]
+        state.setdefault("alerts", {})["active_alerts"] = active_alerts
+
+    # ── 儀表板 ──
+    if tenant.get_setting("dashboard_enabled", True):
+        state["snapshot"] = snap_with_sessions
+        state["health_score"] = score
+        state["health_grade"] = grade
+        state["last_updated"] = now_ts()
+        state["gateway_prev_running"] = gw_now
+
+        dashboard_text = render_dashboard(state)
+        msg_id = state.get("dashboard_message_id")
+        try:
+            if msg_id:
+                ok = sender.edit(int(msg_id), dashboard_text)
+                if not ok:
+                    new_id = sender.send(dashboard_text)
+                    state["dashboard_message_id"] = new_id
+            else:
                 new_id = sender.send(dashboard_text)
                 state["dashboard_message_id"] = new_id
-        else:
+        except Exception:
             new_id = sender.send(dashboard_text)
             state["dashboard_message_id"] = new_id
-    except Exception:
-        new_id = sender.send(dashboard_text)
-        state["dashboard_message_id"] = new_id
 
-    # ── 8. 儲存狀態 ──
-    save_state(state)
+    # ── 儲存租戶狀態 ──
+    tm.save_tenant_state(tenant, state)
+    return alerts_sent
 
-    if not to_send:
-        print(f"✅ 系統正常 (健康分數: {score}/{grade})")
-    else:
-        print(f"🔔 已發送 {len(to_send)} 則警報 (健康分數: {score}/{grade})")
-    return 0
+
+def _filter_with_tenant_cooldowns(events, last_sent, cooldowns):
+    """使用租戶自訂冷卻時間過濾告警"""
+    now = datetime.now(TZ_GMT8)
+    filtered = []
+    for evt in events:
+        cooldown = cooldowns.get(evt.alert_type, 600)
+        last_ts_str = last_sent.get(evt.alert_type)
+        if last_ts_str:
+            try:
+                last_dt = datetime.fromisoformat(last_ts_str)
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=TZ_GMT8)
+                if (now - last_dt).total_seconds() < cooldown:
+                    continue
+            except Exception:
+                pass
+        filtered.append(evt)
+    return filtered
+
+
+def _save_compat_global_state(snap: dict, score: int, grade: str):
+    """向後相容：寫入精簡版 monitoring_state.json，僅含快照資訊供 monitor_snapshot.py 讀取。
+    告警/自癒/錯誤等狀態已移至各租戶目錄，不再寫入全域檔。"""
+    data = {
+        "version": 2,
+        "last_updated": now_ts(),
+        "health_score": score,
+        "health_grade": grade,
+        "snapshot": snap,
+        "gateway_prev_running": snap.get("gateway_active", True),
+        "multi_tenant": True,
+    }
+    # 僅保留 dashboard_message_id 供 snapshot 腳本參考
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r") as f:
+                old = json.load(f)
+            if "dashboard_message_id" in old:
+                data["dashboard_message_id"] = old["dashboard_message_id"]
+        except Exception:
+            pass
+    tmp = STATE_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, STATE_FILE)
 
 
 def _migrate_legacy_state(state: dict):

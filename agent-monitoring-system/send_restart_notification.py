@@ -82,9 +82,8 @@ class TelegramSender:
 def main() -> int:
     load_env()
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-    if not token or not chat_id:
-        print("❌ TELEGRAM_BOT_TOKEN 或 TELEGRAM_CHAT_ID 未設定")
+    if not token:
+        print("❌ TELEGRAM_BOT_TOKEN 未設定")
         return 1
 
     # 取得 Gateway 啟動時間
@@ -101,7 +100,6 @@ def main() -> int:
     uptime = (now - start_time).total_seconds()
     
     # 只有在啟動時間少於 120 秒時才發送通知（表示是剛重啟的）
-    # (ExecStartPost 最多等待 60 秒，加上額外緩衝時間)
     if uptime > 120:
         print(f"⏸️ Gateway 已運行 {uptime:.0f} 秒，不是新重啟，跳過通知")
         return 0
@@ -112,10 +110,28 @@ def main() -> int:
         print(f"⏸️ 此次重啟已通知過，跳過")
         return 0
     
-    # 發送通知
-    sender = TelegramSender(token, chat_id)
+    # ── 多租戶：通知所有啟用的租戶 ──
+    chat_ids = []
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from tenant_manager import TenantManager
+        tm = TenantManager()
+        for tenant in tm.get_active_tenants():
+            if tenant.get_setting("alerts_enabled", True):
+                chat_ids.append(tenant.chat_id)
+    except Exception:
+        pass
+
+    # 回退：無租戶時用 .env
+    if not chat_ids:
+        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+        if chat_id:
+            chat_ids.append(chat_id)
+        else:
+            print("❌ 無可通知的租戶")
+            return 1
+
     now_gmt8 = datetime.now(TZ_GMT8)
-    
     text = (
         f"✅ <b>Gateway 重啟完成</b>\n"
         f"{'━' * 25}\n"
@@ -123,19 +139,22 @@ def main() -> int:
         f"完成時間: {now_gmt8.strftime('%Y-%m-%d %H:%M:%S')} GMT+8\n"
         f"啟動耗時: 約 {uptime:.1f} 秒"
     )
-    
-    try:
-        msg_id = sender.send(text)
-        print(f"✅ 已發送重啟完成通知 (msg_id={msg_id})")
-        
-        # 記錄此次通知
+
+    sent_count = 0
+    for cid in chat_ids:
+        try:
+            sender = TelegramSender(token, cid)
+            msg_id = sender.send(text)
+            print(f"✅ 已發送重啟通知至 {cid} (msg_id={msg_id})")
+            sent_count += 1
+        except Exception as e:
+            print(f"⚠️ 發送至 {cid} 失敗: {e}")
+
+    if sent_count > 0:
         state["last_restart_time"] = start_time_str
         save_state(state)
-        
-        return 0
-    except Exception as e:
-        print(f"❌ 發送通知失敗: {e}")
-        return 1
+
+    return 0 if sent_count > 0 else 1
 
 
 if __name__ == "__main__":

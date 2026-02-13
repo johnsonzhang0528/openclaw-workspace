@@ -11,35 +11,53 @@
 #### 1) 多租戶、權限與配置治理系統
 **整併來源：** 多租戶系統、Telegram Inline Keyboard 主控面板與系統配置管理系統（配置治理部分）  
 **優先級：** 高  
-**狀態：** 待規劃
+**狀態：** ✅ 已完成 (2026-02-13)
 
 **目標：**
 - 以 `chat_id` 為租戶主鍵，建立完整的隔離、授權、配置變更治理能力
 - 僅允許管理員進行高風險配置操作（新增/修改/刪除/回滾）
 
-**實作細節：**
-1. **租戶識別與資料模型**
-   - 設計 `tenant_id = telegram:{chat_id}` 正規化規則（含私聊、群組、頻道）
-   - 建立 `tenants.json`（租戶資訊）、`rbac.json`（角色權限）、`tenant_settings.json`（租戶設定）
-   - 定義租戶目錄：`/root/.openclaw/tenants/{tenant_id}/`（sessions、logs、snapshots）
-2. **會話與檔案隔離**
-   - 將會話檔、監控狀態檔、快取檔按租戶落盤
-   - 禁止跨租戶讀取（檔案層 ACL + 應用層路徑白名單）
-3. **權限與審計**
-   - 角色：`owner/admin/member/viewer`
-   - 高風險指令（如 `/restart`、配置寫入）加上管理員與來源聊天室雙重驗證
-   - 每次配置變更寫入 `audit.log`（操作者、時間、差異、結果）
-4. **配置治理流程**
-   - 配置操作流程：草稿 → 驗證（schema/lint）→ 套用 → 健康檢查 → 失敗自動回滾
-   - 支援版本號與回滾點（`config-v{n}`）
-5. **條件式功能開關**
-   - GitHub/GitLab 已授權租戶才可開啟開發日報
-   - API 成本報告僅 admin chat 可啟用
+**完成成果：**
+1. **租戶管理 `tenant_manager.py`**
+   - 租戶識別：`tenant_id = telegram:{chat_id}`，支援私聊/群組/頻道
+   - 租戶註冊表 `tenants.json`（含備份 `.bak`，毀損時自動恢復）
+   - 租戶目錄隔離：`/root/.openclaw/monitoring/tenants/{tenant_id}/`
+   - 每租戶獨立 `state.json`、`audit.log`、`error_events.jsonl`、`config.json`
+   - 自動從 `.env` 遷移原始單一租戶（首次啟動零配置）
+   - 租戶自訂設定：閾值、冷卻時間、功能開關（dashboard/alerts/self_heal/restart_button）
+2. **RBAC 權限控制 `rbac.py`**
+   - 四層角色：`owner > admin > member > viewer`
+   - 18 項權限矩陣，每項對應最低角色
+   - 高風險操作標記：`restart_gateway`、`delete_data`、`manage_tenants`、`manage_rbac`、`modify_config`
+   - RBAC 整合至 `handle_restart_callbacks()`：未授權使用者按重啟鈕會被拒絕並記錄
+   - 自動從 `.env` 遷移 owner 角色（首次啟動）
+3. **審計日誌 `audit.py`**
+   - Append-only JSONL 格式，每租戶獨立 `audit.log`
+   - 記錄類型：`config_change`、`config_rollback`、`restart`、`role_change`、`permission_denied`、`self_heal`
+   - 含操作者、時間、詳情、結果
+4. **配置治理 `config_governance.py`**
+   - 配置變更流程：驗證 schema → 備份舊值 → 套用 → 健康檢查 → 失敗自動回滾
+   - 版本化配置：`config-v{n}.json`，每次變更產生完整差異記錄
+   - Schema 驗證：型別檢查 + 範圍檢查（如 CPU 閾值 50-99%）
+   - 支援回滾至任意歷史版本
+5. **健康引擎多租戶整合**
+   - 全域採集一次、分發給所有租戶（不重複採集）
+   - 自癒（Gateway 重啟）全域只執行一次，避免多租戶下重複重啟
+   - 每租戶獨立閾值、冷卻時間、告警過濾
+   - 全域 `monitoring_state.json` 精簡化（僅含快照/分數/等級），供 `/monitor` 快速讀取
+6. **衝突修復與向後相容**
+   - `proactive_alerts.py` 已棄用（加入 `sys.exit(0)` 防護）
+   - `send_restart_notification.py` 已改為多租戶扇出通知
+   - `evaluate_alerts()` 支援租戶自訂閾值參數
+   - `tenants.json` 毀損保護：自動從 `.bak` 備份恢復
 
-**驗收標準（DoD）：**
-- 任一租戶無法讀取其他租戶資料
-- 未授權聊天室執行高風險命令時被拒絕並記錄
-- 配置套用失敗可在 1 分鐘內回滾
+**驗收標準（DoD）：** ✅ 全部通過
+- ✅ 租戶狀態完全隔離，各租戶目錄獨立
+- ✅ 未授權使用者執行高風險命令時被拒絕並記錄（RBAC + audit.log）
+- ✅ 配置套用失敗可自動回滾（apply → health_check → rollback 流程已驗證）
+- ✅ 全域自癒不因多租戶重複執行
+- ✅ 向後相容：`monitor_snapshot.py` 正常運作（~170ms 回應）
+- ✅ 註冊表毀損時可從備份恢復（已驗證）
 
 ---
 

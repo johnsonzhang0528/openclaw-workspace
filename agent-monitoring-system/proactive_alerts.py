@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
 """
-主動警報系統 — 附帶 Inline Buttons 快速操作
-當系統資源超標或 Gateway 異常時，發送獨立警報訊息並附帶一鍵操作按鈕
+⚠️ DEPRECATED — 此腳本已被 health_engine.py 取代。
+請勿手動執行，以免 getUpdates API 衝突。
+
+原職責（已整合到 health_engine.py）：
+  - 主動警報系統 — 附帶 Inline Buttons 快速操作
+  - 當系統資源超標或 Gateway 異常時，發送獨立警報訊息
 """
+
+import sys
+print("⚠️ proactive_alerts.py 已被 health_engine.py 取代，請勿手動執行")
+print("   使用: python3 health_engine.py")
+sys.exit(0)
+
+# ── 以下為舊版程式碼，保留供參考 ──
 
 import json
 import os
 import subprocess
-import sys
 from datetime import datetime, timezone, timedelta
 
 import requests
