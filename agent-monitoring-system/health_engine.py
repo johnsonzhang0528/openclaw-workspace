@@ -199,11 +199,29 @@ def _default_state() -> dict:
 # ─── 平行採集 ────────────────────────────────────────────
 
 def collect_cpu() -> Dict[str, float]:
-    v = sh("top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | cut -d'%' -f1")
-    try:
-        return {"cpu_percent": float(v)}
-    except ValueError:
-        return {"cpu_percent": 0.0}
+    """
+    讀取 /proc/stat 計算 CPU 使用率（3 次取樣取平均，間隔 0.5 秒）。
+    比 top -bn1 穩定，不受瞬時 spike 影響。
+    """
+    samples = []
+    prev = None
+    for _ in range(4):  # 4 個時間點 → 3 個區間
+        with open("/proc/stat") as f:
+            fields = f.readline().split()  # cpu user nice system idle iowait irq softirq ...
+        vals = [int(x) for x in fields[1:]]
+        total = sum(vals)
+        idle = vals[3] + vals[4]  # idle + iowait
+        if prev is not None:
+            dt = total - prev[0]
+            di = idle - prev[1]
+            if dt > 0:
+                samples.append((1.0 - di / dt) * 100.0)
+        prev = (total, idle)
+        if _ < 3:
+            time.sleep(0.5)
+    if samples:
+        return {"cpu_percent": round(sum(samples) / len(samples), 1)}
+    return {"cpu_percent": 0.0}
 
 
 def collect_memory() -> Dict[str, Any]:
@@ -613,7 +631,7 @@ class TelegramSender:
             print(f"⚠️ Telegram send failed: {exc}")
             return 0
 
-    def edit(self, message_id: int, text: str) -> bool:
+    def edit(self, message_id: int, text: str, keyboard: list = None) -> bool:
         payload = {
             "chat_id": self.chat_id,
             "message_id": message_id,
@@ -621,6 +639,8 @@ class TelegramSender:
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }
+        if keyboard:
+            payload["reply_markup"] = json.dumps({"inline_keyboard": keyboard})
         try:
             r = requests.post(f"{self.base}/editMessageText", json=payload, timeout=20)
             return r.status_code == 200 and r.json().get("ok", False)
@@ -648,11 +668,23 @@ class TelegramSender:
         except Exception:
             return False
 
+    def set_my_commands(self, commands: list) -> bool:
+        """註冊 Bot 指令選單（Telegram 會在輸入框顯示指令提示）"""
+        try:
+            r = requests.post(
+                f"{self.base}/setMyCommands",
+                json={"commands": commands},
+                timeout=10,
+            )
+            return r.status_code == 200 and r.json().get("ok", False)
+        except Exception:
+            return False
+
     def get_updates(self, offset: int = 0) -> list:
         try:
             r = requests.post(
                 f"{self.base}/getUpdates",
-                json={"offset": offset, "timeout": 0, "allowed_updates": ["callback_query"]},
+                json={"offset": offset, "timeout": 0, "allowed_updates": ["callback_query", "message"]},
                 timeout=3,
             )
             r.raise_for_status()
@@ -827,79 +859,184 @@ def _fmt_uptime(sec: int) -> str:
     return "".join(parts)
 
 
-# ─── 重啟按鈕處理 ────────────────────────────────────────
+# ─── Telegram 選單整合 ──────────────────────────────────
 
-def handle_restart_callbacks(sender: TelegramSender, state: dict):
-    """處理 Telegram 回呼按鈕（含 RBAC 權限驗證）"""
+def _ensure_bot_commands(sender: TelegramSender, state: dict):
+    """
+    一次性註冊 Bot 指令選單。
+    透過版本號追蹤，只在首次啟動或版本變更時呼叫 setMyCommands。
+    """
+    from telegram_ui import BOT_COMMANDS
+    cmd_version = "v1"  # 變更 BOT_COMMANDS 時遞增
+    if state.get("bot_commands_version") == cmd_version:
+        return
+    if sender.set_my_commands(BOT_COMMANDS):
+        state["bot_commands_version"] = cmd_version
+        print(f"✅ Bot 指令選單已註冊 ({cmd_version})")
+
+
+def _process_updates(sender: TelegramSender, state: dict, gw_running: bool, tm, rbac):
+    """
+    處理所有待處理的 Telegram 更新。
+
+    路由規則：
+      - callback_data 以 "m:" 開頭 → 主控面板選單（menu_handler）
+      - callback_data == "/restart"  → 舊版告警按鈕（向後相容）
+      - callback_data 其他 /指令     → 舊版告警按鈕資訊回應
+      - message 以 "/" 開頭         → 指令處理（menu_handler）
+    """
     last_update_id = state.get("last_update_id", 0)
     updates = sender.get_updates(offset=last_update_id + 1)
     if not updates:
         return
 
-    rbac = _get_rbac_manager()
     new_id = last_update_id
     for update in updates:
         uid = update.get("update_id", 0)
         if uid > new_id:
             new_id = uid
 
+        # ── Callback Query ──
         cq = update.get("callback_query")
-        if not cq:
+        if cq:
+            cb_data = cq.get("data", "")
+            if cb_data.startswith("m:"):
+                # 主控面板選單回呼
+                try:
+                    from menu_handler import handle_menu_callback
+                    handle_menu_callback(sender, cq, rbac, tm, state)
+                except Exception as exc:
+                    print(f"⚠️ Menu callback error: {exc}")
+                    sender.answer_callback(cq.get("id", ""), f"❌ {exc}")
+            elif cb_data == "/restart":
+                # 舊版告警重啟按鈕（向後相容）
+                _handle_legacy_restart(sender, cq, state, rbac)
+            elif cb_data in ("/logs", "/health", "/tasks", "/perf"):
+                # 舊版告警資訊按鈕 → 回應對應內容
+                _handle_legacy_info(sender, cq, cb_data)
+            elif cb_data.startswith("/exec "):
+                # 安全指令執行（僅允許白名單）
+                _handle_safe_exec(sender, cq, cb_data)
+            else:
+                sender.answer_callback(cq.get("id", ""), "此功能開發中")
             continue
 
-        cb_id = cq.get("id")
-        cb_data = cq.get("data", "")
-        from_info = cq.get("from", {})
-        from_user_id = str(from_info.get("id", ""))
-        from_username = from_info.get("username", "unknown")
-        chat_id = str(cq.get("message", {}).get("chat", {}).get("id", sender.chat_id))
-        tenant_id = f"telegram:{chat_id}"
-
-        if cb_data == "/restart":
-            # RBAC 權限檢查
-            perm = rbac.check_permission(from_user_id, tenant_id, "restart_gateway")
-            if not perm.allowed:
-                sender.answer_callback(cb_id, f"⛔ 權限不足: {perm.reason}")
-                # 審計拒絕
+        # ── Message（指令）──
+        msg = update.get("message")
+        if msg:
+            text = (msg.get("text") or "").strip()
+            if text.startswith("/"):
                 try:
-                    from audit import audit_permission_denied
-                    audit_permission_denied(tenant_id, from_user_id, from_username, "restart_gateway", perm.reason)
-                except Exception:
-                    pass
-                print(f"⛔ @{from_username} 重啟被拒: {perm.reason}")
-                continue
-
-            print(f"🔄 收到來自 @{from_username} 的重啟請求（已授權）")
-            sender.answer_callback(cb_id, "正在重啟 Gateway...")
-
-            env = os.environ.copy()
-            env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
-            env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path=/run/user/{os.getuid()}/bus"
-            try:
-                r = subprocess.run(
-                    ["systemctl", "--user", "restart", "openclaw-gateway"],
-                    capture_output=True, text=True, timeout=15, env=env,
-                )
-                if r.returncode == 0:
-                    sender.send("🔄 <b>Gateway 重啟中</b>\n請稍候約 1 分鐘，系統會自動發送重啟完成通知")
-                    reset_self_heal_on_recovery(state)
-                    result = "success"
-                else:
-                    sender.send(f"❌ Gateway 重啟失敗\n{r.stderr}")
-                    result = "failed"
-            except Exception as exc:
-                sender.send(f"❌ 執行重啟時發生錯誤: {exc}")
-                result = "error"
-            # 審計重啟操作
-            try:
-                from audit import audit_restart
-                audit_restart(tenant_id, from_user_id, from_username, "button", result)
-            except Exception:
-                pass
-        else:
-            sender.answer_callback(cb_id, "此功能需要 Gateway 運行")
+                    from menu_handler import handle_command
+                    handle_command(sender, msg, rbac, tm, state)
+                except Exception as exc:
+                    print(f"⚠️ Command error: {exc}")
 
     state["last_update_id"] = new_id
+
+
+def _handle_legacy_restart(sender: TelegramSender, cq: dict, state: dict, rbac):
+    """處理舊版告警按鈕的 /restart 回呼（完整保留原有邏輯）"""
+    cb_id = cq.get("id")
+    from_info = cq.get("from", {})
+    from_user_id = str(from_info.get("id", ""))
+    from_username = from_info.get("username", "unknown")
+    chat_id = str(cq.get("message", {}).get("chat", {}).get("id", sender.chat_id))
+    tenant_id = f"telegram:{chat_id}"
+
+    # RBAC 權限檢查
+    perm = rbac.check_permission(from_user_id, tenant_id, "restart_gateway")
+    if not perm.allowed:
+        sender.answer_callback(cb_id, f"⛔ 權限不足: {perm.reason}")
+        try:
+            from audit import audit_permission_denied
+            audit_permission_denied(tenant_id, from_user_id, from_username, "restart_gateway", perm.reason)
+        except Exception:
+            pass
+        print(f"⛔ @{from_username} 重啟被拒: {perm.reason}")
+        return
+
+    print(f"🔄 收到來自 @{from_username} 的重啟請求（已授權）")
+    sender.answer_callback(cb_id, "正在重啟 Gateway...")
+
+    env = os.environ.copy()
+    env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
+    env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path=/run/user/{os.getuid()}/bus"
+    try:
+        r = subprocess.run(
+            ["systemctl", "--user", "restart", "openclaw-gateway"],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+        if r.returncode == 0:
+            sender.send("🔄 <b>Gateway 重啟中</b>\n請稍候約 1 分鐘，系統會自動發送重啟完成通知")
+            reset_self_heal_on_recovery(state)
+            result = "success"
+        else:
+            sender.send(f"❌ Gateway 重啟失敗\n{r.stderr}")
+            result = "failed"
+    except Exception as exc:
+        sender.send(f"❌ 執行重啟時發生錯誤: {exc}")
+        result = "error"
+
+    try:
+        from audit import audit_restart
+        audit_restart(tenant_id, from_user_id, from_username, "button", result)
+    except Exception:
+        pass
+
+
+def _handle_legacy_info(sender: TelegramSender, cq: dict, cb_data: str):
+    """處理舊版告警按鈕的資訊回呼（/logs, /health, /tasks, /perf）"""
+    from telegram_ui import (
+        truncate, generate_gateway_logs, generate_health_check, generate_perf_detail,
+    )
+    cb_id = cq.get("id", "")
+
+    if cb_data == "/logs":
+        text = generate_gateway_logs()
+    elif cb_data == "/health":
+        text = generate_health_check()
+    elif cb_data in ("/tasks", "/perf"):
+        text = generate_perf_detail()
+    else:
+        sender.answer_callback(cb_id, "此功能開發中")
+        return
+
+    sender.answer_callback(cb_id)
+    sender.send(truncate(text))
+
+
+def _handle_safe_exec(sender: TelegramSender, cq: dict, cb_data: str):
+    """處理安全指令執行（僅允許白名單指令，需 admin 權限）"""
+    cb_id = cq.get("id", "")
+    from_info = cq.get("from", {})
+    from_user_id = str(from_info.get("id", ""))
+    chat_id = str(cq.get("message", {}).get("chat", {}).get("id", sender.chat_id))
+    tenant_id = f"telegram:{chat_id}"
+
+    # RBAC 權限檢查
+    rbac = _get_rbac_manager()
+    perm = rbac.check_permission(from_user_id, tenant_id, "exec_command")
+    if not perm.allowed:
+        sender.answer_callback(cb_id, f"⛔ {perm.reason}")
+        return
+
+    cmd = cb_data[6:].strip()  # 去掉 "/exec "
+
+    SAFE_COMMANDS = {"df -h", "uptime", "free -h"}
+    if cmd not in SAFE_COMMANDS:
+        sender.answer_callback(cb_id, "此指令不允許執行")
+        return
+
+    try:
+        out = subprocess.check_output(cmd.split(), text=True, timeout=10)
+        text = f"<b>📋 {cmd}</b>\n\n<code>{out[:3500]}</code>"
+    except Exception as e:
+        text = f"❌ 執行失敗: {e}"
+
+    sender.answer_callback(cb_id)
+    from telegram_ui import truncate
+    sender.send(truncate(text))
 
 
 # ─── /monitor 快照（供 SOUL.md 或 skill 使用）───────────
@@ -962,13 +1099,15 @@ def main() -> int:
                 _audit_global(primary_tenant.tenant_id, "self_heal", detail=global_heal_msg)
             except Exception:
                 pass
-        # 處理全域回呼（getUpdates 全域唯一）
-        sender_for_callbacks = TelegramSender(token, primary_tenant.chat_id)
-        handle_restart_callbacks(sender_for_callbacks, primary_state)
 
     # 如果 Gateway 恢復，重設自癒計數
     if gw_now and not primary_state.get("gateway_prev_running", True):
         reset_self_heal_on_recovery(primary_state)
+
+    # ── 4b. 處理所有 Telegram 更新（指令 + 選單回呼 + 告警按鈕）──
+    sender_for_updates = TelegramSender(token, primary_tenant.chat_id)
+    _ensure_bot_commands(sender_for_updates, primary_state)
+    _process_updates(sender_for_updates, primary_state, gw_now, tm, rbac)
 
     tm.save_tenant_state(primary_tenant, primary_state)
 
