@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 import hashlib
+from html import escape as _esc
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone, timedelta
@@ -1044,10 +1045,10 @@ def _handle_legacy_restart(sender: TelegramSender, cq: dict, state: dict, rbac):
             reset_self_heal_on_recovery(state)
             result = "success"
         else:
-            sender.send(f"❌ Gateway 重啟失敗\n{r.stderr}")
+            sender.send(f"❌ Gateway 重啟失敗\n<code>{_esc(r.stderr[:300])}</code>")
             result = "failed"
     except Exception as exc:
-        sender.send(f"❌ 執行重啟時發生錯誤: {exc}")
+        sender.send(f"❌ 執行重啟時發生錯誤: {_esc(str(exc))}")
         result = "error"
 
     try:
@@ -1102,9 +1103,9 @@ def _handle_safe_exec(sender: TelegramSender, cq: dict, cb_data: str):
 
     try:
         out = subprocess.check_output(cmd.split(), text=True, timeout=10)
-        text = f"<b>📋 {cmd}</b>\n\n<code>{out[:3500]}</code>"
+        text = f"<b>📋 {_esc(cmd)}</b>\n\n<code>{_esc(out[:3500])}</code>"
     except Exception as e:
-        text = f"❌ 執行失敗: {e}"
+        text = f"❌ 執行失敗: {_esc(str(e))}"
 
     sender.answer_callback(cb_id)
     from telegram_ui import truncate

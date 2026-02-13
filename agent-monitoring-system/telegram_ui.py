@@ -409,7 +409,7 @@ def generate_gateway_logs() -> str:
         for line in recent:
             lines.append(f"<code>{_escape_html(line[:120])}</code>")
     except Exception as e:
-        lines.append(f"\n讀取失敗: {e}")
+        lines.append(f"\n讀取失敗: {_escape_html(str(e))}")
 
     return truncate("\n".join(lines))
 
@@ -452,7 +452,7 @@ def generate_health_check() -> str:
     state_file = "/root/.openclaw/monitoring/monitoring_state.json"
     try:
         age = time.time() - os.path.getmtime(state_file)
-        checks.append(("監控狀態 (<5min)", age < 300))
+        checks.append(("監控狀態 (&lt;5min)", age < 300))
     except Exception:
         checks.append(("監控狀態", False))
 
@@ -511,7 +511,7 @@ def generate_backup_status() -> str:
         else:
             lines.append(f"✅ 狀態正常")
     except Exception as e:
-        lines.append(f"\n讀取失敗: {e}")
+        lines.append(f"\n讀取失敗: {_escape_html(str(e))}")
 
     return truncate("\n".join(lines))
 
@@ -565,9 +565,9 @@ def generate_config_view(tenant_id: str) -> str:
         config = gov.get_effective_config(tenant)
         lines.append("")
         for key, val in _flatten_config(config):
-            lines.append(f"  <code>{key}</code> = {val}")
+            lines.append(f"  <code>{_escape_html(str(key))}</code> = {_escape_html(str(val))}")
     except Exception as e:
-        lines.append(f"\n讀取失敗: {e}")
+        lines.append(f"\n讀取失敗: {_escape_html(str(e))}")
 
     return truncate("\n".join(lines))
 
@@ -599,11 +599,11 @@ def generate_config_history(tenant_id: str) -> str:
                 key_str = ", ".join(keys[:3])
                 if len(keys) > 3:
                     key_str += f" +{len(keys) - 3}"
-                lines.append(f"  v{ver} <code>{ts}</code> by {user}")
+                lines.append(f"  v{ver} <code>{ts}</code> by {_escape_html(str(user))}")
                 if key_str:
-                    lines.append(f"      變更: {key_str}")
+                    lines.append(f"      變更: {_escape_html(key_str)}")
     except Exception as e:
-        lines.append(f"\n讀取失敗: {e}")
+        lines.append(f"\n讀取失敗: {_escape_html(str(e))}")
 
     return truncate("\n".join(lines))
 
@@ -615,7 +615,7 @@ def generate_disk_report() -> str:
         engine = LogGovernanceEngine()
         return truncate(engine.format_report_text())
     except Exception as e:
-        return f"<b>📊 磁碟報告</b>\n\n讀取失敗: {e}"
+        return f"<b>📊 磁碟報告</b>\n\n讀取失敗: {_escape_html(str(e))}"
 
 
 def generate_system_info(tenant_id: str, user_id: str) -> str:
@@ -636,12 +636,12 @@ def generate_system_info(tenant_id: str, user_id: str) -> str:
     # Kernel
     try:
         kernel = subprocess.check_output(["uname", "-r"], text=True, timeout=3).strip()
-        lines.append(f"🐧 Kernel: <code>{kernel}</code>")
+        lines.append(f"🐧 Kernel: <code>{_escape_html(kernel)}</code>")
     except Exception:
         pass
 
     # Tenant
-    lines.append(f"🏠 租戶: <code>{tenant_id}</code>")
+    lines.append(f"🏠 租戶: <code>{_escape_html(str(tenant_id))}</code>")
 
     # Role
     try:
@@ -662,7 +662,7 @@ def generate_system_info(tenant_id: str, user_id: str) -> str:
             capture_output=True, text=True, timeout=5, env=env,
         )
         gw_status = r.stdout.strip()
-        lines.append(f"🖥️ Gateway: <b>{gw_status}</b>")
+        lines.append(f"🖥️ Gateway: <b>{_escape_html(gw_status)}</b>")
     except Exception:
         pass
 

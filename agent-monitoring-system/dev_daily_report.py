@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+from html import escape as _esc
 from datetime import datetime, timezone, timedelta
 
 import requests
@@ -188,7 +189,7 @@ def build_report() -> str:
     if ws_commits:
         git_section += f"今日提交: <b>{len(ws_commits)}</b> 筆\n"
         for c in ws_commits[:5]:
-            git_section += f"  <code>{c['hash']}</code> {c['msg'][:50]}\n"
+            git_section += f"  <code>{c['hash']}</code> {_esc(c['msg'][:50])}\n"
         if len(ws_commits) > 5:
             git_section += f"  ...另有 {len(ws_commits) - 5} 筆\n"
     else:
@@ -205,7 +206,7 @@ def build_report() -> str:
     if cfg_commits:
         cfg_section += f"今日提交: <b>{len(cfg_commits)}</b> 筆\n"
         for c in cfg_commits[:3]:
-            cfg_section += f"  <code>{c['hash']}</code> {c['msg'][:50]}\n"
+            cfg_section += f"  <code>{c['hash']}</code> {_esc(c['msg'][:50])}\n"
     else:
         cfg_section += "今日提交: <b>0</b> 筆\n"
     cfg_section += f"未提交變更: <b>{cfg_uncommitted}</b> 個檔案"

@@ -17,6 +17,7 @@
 
 import os
 import subprocess
+from html import escape as _esc
 from typing import Optional
 
 from telegram_ui import (
@@ -36,6 +37,8 @@ from telegram_ui import (
 from command_registry import (
     SKELETON_SLASH, SKELETON_CALLBACK, skeleton_text,
 )
+
+from direct_commands import is_direct_command, execute as execute_direct
 
 # ─── 骨架訊息 (Skeleton Message) ─────────────────────────
 #
@@ -94,7 +97,7 @@ def handle_command(sender, message: dict, rbac, tm, state: dict):
     if cmd in ("/menu", "/start"):
         perm = rbac.check_permission(from_id, tenant_id, "view_menu")
         if not perm.allowed:
-            sender.send(f"⛔ 權限不足: {perm.reason}")
+            sender.send(f"⛔ 權限不足: {_esc(str(perm.reason))}")
             return
 
         score = state.get("health_score", 0)
@@ -106,7 +109,7 @@ def handle_command(sender, message: dict, rbac, tm, state: dict):
     elif cmd == "/monitor":
         perm = rbac.check_permission(from_id, tenant_id, "view_dashboard")
         if not perm.allowed:
-            sender.send(f"⛔ 權限不足: {perm.reason}")
+            sender.send(f"⛔ 權限不足: {_esc(str(perm.reason))}")
             return
 
         msg_id = _send_skeleton(sender, cmd, keyboard=kb_back())
@@ -115,7 +118,7 @@ def handle_command(sender, message: dict, rbac, tm, state: dict):
             dashboard = render_dashboard(state)
             _fill_skeleton(sender, msg_id, dashboard, keyboard=kb_back())
         except Exception as e:
-            _fill_skeleton(sender, msg_id, f"❌ 載入儀表板失敗: {e}", keyboard=kb_back())
+            _fill_skeleton(sender, msg_id, f"❌ 載入儀表板失敗: {_esc(str(e))}", keyboard=kb_back())
 
     elif cmd == "/help":
         sender.send(page_help())
@@ -123,63 +126,77 @@ def handle_command(sender, message: dict, rbac, tm, state: dict):
     elif cmd == "/token":
         perm = rbac.check_permission(from_id, tenant_id, "view_report")
         if not perm.allowed:
-            sender.send(f"⛔ 權限不足: {perm.reason}")
+            sender.send(f"⛔ 權限不足: {_esc(str(perm.reason))}")
             return
         msg_id = _send_skeleton(sender, cmd, keyboard=kb_token())
         try:
             from token_governance import generate_token_summary
             _fill_skeleton(sender, msg_id, generate_token_summary(), keyboard=kb_token())
         except Exception as e:
-            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {e}", keyboard=kb_token())
+            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {_esc(str(e))}", keyboard=kb_token())
         print(f"💰 /token 已回應 (user: {from_id})")
 
     elif cmd == "/backup":
         perm = rbac.check_permission(from_id, tenant_id, "view_dashboard")
         if not perm.allowed:
-            sender.send(f"⛔ 權限不足: {perm.reason}")
+            sender.send(f"⛔ 權限不足: {_esc(str(perm.reason))}")
             return
         msg_id = _send_skeleton(sender, cmd, keyboard=kb_backup())
         try:
             _fill_skeleton(sender, msg_id, generate_backup_status(), keyboard=kb_backup())
         except Exception as e:
-            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {e}", keyboard=kb_backup())
+            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {_esc(str(e))}", keyboard=kb_backup())
         print(f"💾 /backup 已回應 (user: {from_id})")
 
     elif cmd == "/config":
         perm = rbac.check_permission(from_id, tenant_id, "view_config")
         if not perm.allowed:
-            sender.send(f"⛔ 權限不足: {perm.reason}")
+            sender.send(f"⛔ 權限不足: {_esc(str(perm.reason))}")
             return
         msg_id = _send_skeleton(sender, cmd, keyboard=kb_config())
         try:
             _fill_skeleton(sender, msg_id, generate_config_view(tenant_id), keyboard=kb_config())
         except Exception as e:
-            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {e}", keyboard=kb_config())
+            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {_esc(str(e))}", keyboard=kb_config())
         print(f"⚙️ /config 已回應 (user: {from_id})")
 
     elif cmd == "/logs":
         perm = rbac.check_permission(from_id, tenant_id, "view_logs")
         if not perm.allowed:
-            sender.send(f"⛔ 權限不足: {perm.reason}")
+            sender.send(f"⛔ 權限不足: {_esc(str(perm.reason))}")
             return
         msg_id = _send_skeleton(sender, cmd, keyboard=kb_logs())
         try:
             _fill_skeleton(sender, msg_id, generate_disk_report(), keyboard=kb_logs())
         except Exception as e:
-            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {e}", keyboard=kb_logs())
+            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {_esc(str(e))}", keyboard=kb_logs())
         print(f"📝 /logs 已回應 (user: {from_id})")
 
     elif cmd == "/info":
         perm = rbac.check_permission(from_id, tenant_id, "view_dashboard")
         if not perm.allowed:
-            sender.send(f"⛔ 權限不足: {perm.reason}")
+            sender.send(f"⛔ 權限不足: {_esc(str(perm.reason))}")
             return
         msg_id = _send_skeleton(sender, cmd, keyboard=kb_back())
         try:
             _fill_skeleton(sender, msg_id, generate_system_info(tenant_id, from_id), keyboard=kb_back())
         except Exception as e:
-            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {e}", keyboard=kb_back())
+            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {_esc(str(e))}", keyboard=kb_back())
         print(f"ℹ️ /info 已回應 (user: {from_id})")
+
+    elif is_direct_command(cmd):
+        # 直接指令：devreport / costreport / gitlog / gitdiff / gitbranch / quickbackup
+        perm = rbac.check_permission(from_id, tenant_id, "view_report")
+        if not perm.allowed:
+            sender.send(f"⛔ 權限不足: {_esc(str(perm.reason))}")
+            return
+        msg_id = _send_skeleton(sender, cmd, keyboard=kb_back())
+        try:
+            result = execute_direct(cmd)
+            _fill_skeleton(sender, msg_id, result, keyboard=kb_back())
+        except Exception as e:
+            _fill_skeleton(sender, msg_id, f"❌ 執行失敗: {_esc(str(e))}", keyboard=kb_back())
+        print(f"⚡ {cmd} 直接執行完成 (user: {from_id})")
 
     # 其他未知指令 → 不回應（避免干擾 OpenClaw 本身的指令）
 
@@ -286,7 +303,7 @@ def _page_monitor(show, check_perm, action, state):
             from health_engine import render_dashboard
             show(render_dashboard(state), kb_back())
         except Exception as e:
-            show(f"❌ 載入失敗: {e}", kb_back())
+            show(f"❌ 載入失敗: {_esc(str(e))}", kb_back())
 
     elif action == "perf":
         show(generate_perf_detail(), kb_back())
@@ -401,28 +418,28 @@ def _page_token(show, check_perm, action):
             from token_governance import generate_token_summary
             show(truncate(generate_token_summary()), kb_back())
         except Exception as e:
-            show(f"❌ 載入失敗: {e}", kb_back())
+            show(f"❌ 載入失敗: {_esc(str(e))}", kb_back())
 
     elif action == "detail":
         try:
             from token_governance import generate_token_detail
             show(truncate(generate_token_detail()), kb_back())
         except Exception as e:
-            show(f"❌ 載入失敗: {e}", kb_back())
+            show(f"❌ 載入失敗: {_esc(str(e))}", kb_back())
 
     elif action == "hourly":
         try:
             from token_governance import generate_token_hourly
             show(truncate(generate_token_hourly()), kb_back())
         except Exception as e:
-            show(f"❌ 載入失敗: {e}", kb_back())
+            show(f"❌ 載入失敗: {_esc(str(e))}", kb_back())
 
     elif action == "budget":
         try:
             from token_governance import generate_budget_status
             show(truncate(generate_budget_status()), kb_back())
         except Exception as e:
-            show(f"❌ 載入失敗: {e}", kb_back())
+            show(f"❌ 載入失敗: {_esc(str(e))}", kb_back())
 
     else:
         # 子選單首頁
@@ -452,10 +469,10 @@ def _do_restart(sender, msg_id, user_id, username, tenant_id, state):
             from health_engine import reset_self_heal_on_recovery
             reset_self_heal_on_recovery(state)
         else:
-            text = f"❌ <b>Gateway 重啟失敗</b>\n\n<code>{r.stderr[:300]}</code>"
+            text = f"❌ <b>Gateway 重啟失敗</b>\n\n<code>{_esc(r.stderr[:300])}</code>"
             result = "failed"
     except Exception as exc:
-        text = f"❌ <b>重啟錯誤</b>\n\n{exc}"
+        text = f"❌ <b>重啟錯誤</b>\n\n{_esc(str(exc))}"
         result = "error"
 
     if msg_id:
@@ -489,9 +506,9 @@ def _do_backup(sender, msg_id, user_id, username, tenant_id):
                 f"⏱️ 耗時: {manifest.duration_ms}ms"
             )
         else:
-            text = f"❌ <b>備份失敗</b>\n\n{manifest.error}"
+            text = f"❌ <b>備份失敗</b>\n\n{_esc(str(manifest.error))}"
     except Exception as e:
-        text = f"❌ <b>備份失敗</b>\n\n{e}"
+        text = f"❌ <b>備份失敗</b>\n\n{_esc(str(e))}"
 
     if msg_id:
         sender.edit(msg_id, text, keyboard=kb_back())
@@ -514,11 +531,11 @@ def _do_verify(sender, msg_id):
         ok, msg = engine.verify_backup()
 
         if ok:
-            text = f"✅ <b>備份驗證通過</b>\n\n{msg}"
+            text = f"✅ <b>備份驗證通過</b>\n\n{_esc(str(msg))}"
         else:
-            text = f"❌ <b>備份驗證失敗</b>\n\n{msg}"
+            text = f"❌ <b>備份驗證失敗</b>\n\n{_esc(str(msg))}"
     except Exception as e:
-        text = f"❌ <b>驗證失敗</b>\n\n{e}"
+        text = f"❌ <b>驗證失敗</b>\n\n{_esc(str(e))}"
 
     if msg_id:
         sender.edit(msg_id, text, keyboard=kb_back())

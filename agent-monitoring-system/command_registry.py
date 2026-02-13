@@ -21,14 +21,21 @@ from typing import List, Dict
 # ─── 監控系統指令（menu_handler.py 處理）────────────────
 
 MONITOR_COMMANDS: List[Dict[str, str]] = [
-    {"command": "menu",    "description": "📱 開啟主控面板"},
-    {"command": "monitor", "description": "📊 系統監控儀表板"},
-    {"command": "token",   "description": "💰 Token 成本摘要"},
-    {"command": "backup",  "description": "💾 備份狀態"},
-    {"command": "config",  "description": "⚙️ 查看設定"},
-    {"command": "logs",    "description": "📝 磁碟使用報告"},
-    {"command": "info",    "description": "ℹ️ 系統資訊"},
-    {"command": "help",    "description": "❓ 指令說明"},
+    {"command": "menu",         "description": "📱 開啟主控面板"},
+    {"command": "monitor",      "description": "📊 系統監控儀表板"},
+    {"command": "token",        "description": "💰 Token 成本摘要"},
+    {"command": "backup",       "description": "💾 備份狀態"},
+    {"command": "config",       "description": "⚙️ 查看設定"},
+    {"command": "logs",         "description": "📝 磁碟使用報告"},
+    {"command": "info",         "description": "ℹ️ 系統資訊"},
+    {"command": "help",         "description": "❓ 指令說明"},
+    # 直接執行指令（direct_commands.py 處理，不經 AI）
+    {"command": "devreport",    "description": "📋 今日開發進度報告"},
+    {"command": "costreport",   "description": "💰 API 使用量與費用報告"},
+    {"command": "gitlog",       "description": "📜 最近 Git 提交紀錄"},
+    {"command": "gitdiff",      "description": "📝 目前未提交的變更"},
+    {"command": "gitbranch",    "description": "🌿 分支列表與目前分支"},
+    {"command": "quickbackup",  "description": "💾 快速備份並推送到 GitHub"},
 ]
 
 # ─── OpenClaw AI 指令（由 AI 代理處理）────────────────────
@@ -37,16 +44,10 @@ OPENCLAW_COMMANDS: List[Dict[str, str]] = [
     {"command": "issue",         "description": "建立新 Issue — 輸入 /issue <標題>"},
     {"command": "issuehistory",  "description": "查看最近 Issue 歷史紀錄"},
     {"command": "tasks",         "description": "列出目前進行中的任務"},
-    {"command": "gitlog",        "description": "查看最近 Git 提交紀錄"},
-    {"command": "gitdiff",       "description": "查看目前未提交的變更"},
-    {"command": "gitbranch",     "description": "查看分支列表與目前分支"},
     {"command": "gitpush",       "description": "推送最新提交到遠端"},
-    {"command": "devreport",     "description": "生成今日開發進度報告"},
-    {"command": "costreport",    "description": "查看 API 使用量與費用報告"},
     {"command": "switchdev",     "description": "切換到開發 (dev) 工作階段"},
     {"command": "switchops",     "description": "切換到維運 (ops) 工作階段"},
     {"command": "switchdefault", "description": "切換回預設工作階段"},
-    {"command": "quickbackup",   "description": "快速備份設定並推送到 GitHub"},
 ]
 
 # ─── 全量合併 ────────────────────────────────────────────
@@ -112,12 +113,19 @@ def sync_openclaw_json(json_path: str = None) -> bool:
 # value = (icon, title)
 
 SKELETON_SLASH: Dict[str, tuple] = {
-    "/monitor": ("📊", "系統監控儀表板"),
-    "/token":   ("💰", "Token 成本摘要"),
-    "/backup":  ("💾", "備份狀態"),
-    "/config":  ("⚙️", "系統設定"),
-    "/logs":    ("📝", "磁碟報告"),
-    "/info":    ("ℹ️", "系統資訊"),
+    "/monitor":     ("📊", "系統監控儀表板"),
+    "/token":       ("💰", "Token 成本摘要"),
+    "/backup":      ("💾", "備份狀態"),
+    "/config":      ("⚙️", "系統設定"),
+    "/logs":        ("📝", "磁碟報告"),
+    "/info":        ("ℹ️", "系統資訊"),
+    # 直接執行指令
+    "/devreport":   ("📋", "開發進度報告"),
+    "/costreport":  ("💰", "API 費用報告"),
+    "/gitlog":      ("📜", "Git 提交紀錄"),
+    "/gitdiff":     ("📝", "Git 變更摘要"),
+    "/gitbranch":   ("🌿", "Git 分支列表"),
+    "/quickbackup": ("💾", "快速備份"),
 }
 
 SKELETON_CALLBACK: Dict[tuple, tuple] = {
