@@ -3,7 +3,7 @@
 選單處理器 (Menu Handler)
 ═══════════════════════════
 職責：
-  1. 處理 /menu、/monitor、/help 等 Telegram 指令
+  1. 處理 /menu、/monitor、/token、/backup、/config、/logs、/info、/help 等 Telegram 指令
   2. 處理主控面板 callback button 點擊
   3. 整合 RBAC 權限檢查（每個操作前驗證）
   4. 整合審計日誌（高風險操作記錄）
@@ -33,6 +33,34 @@ from telegram_ui import (
 )
 
 
+from command_registry import (
+    SKELETON_SLASH, SKELETON_CALLBACK, skeleton_text,
+)
+
+# ─── 骨架訊息 (Skeleton Message) ─────────────────────────
+#
+# 策略：先送出只有標題的佔位訊息（⏳ 載入中…），再以 editMessageText
+# 回填實際資料。使用者體驗上達到「即時回應」的感覺。
+#
+# 兩條路徑都支援：
+#   1. 斜線指令 (handle_command):   send skeleton → load → edit fill
+#   2. 選單按鈕 (handle_menu_callback): edit skeleton → load → edit fill
+
+
+def _send_skeleton(sender, cmd: str, keyboard=None) -> int:
+    """斜線指令路徑：發送骨架佔位訊息，回傳 message_id。"""
+    icon, title = SKELETON_SLASH.get(cmd, ("⏳", "載入中"))
+    return sender.send(skeleton_text(icon, title), keyboard=keyboard)
+
+
+def _fill_skeleton(sender, msg_id: int, content: str, keyboard=None):
+    """用實際內容回填骨架訊息。若骨架發送失敗（msg_id=0），改為新發。"""
+    if msg_id:
+        sender.edit(msg_id, truncate(content), keyboard=keyboard)
+    else:
+        sender.send(truncate(content), keyboard=keyboard)
+
+
 # ─── 指令處理 ────────────────────────────────────────────
 
 def handle_command(sender, message: dict, rbac, tm, state: dict):
@@ -42,6 +70,11 @@ def handle_command(sender, message: dict, rbac, tm, state: dict):
     支援指令：
       /menu, /start  → 開啟主控面板
       /monitor       → 健康儀表板
+      /token         → Token 成本摘要
+      /backup        → 備份狀態
+      /config        → 查看設定
+      /logs          → 磁碟使用報告
+      /info          → 系統資訊
       /help          → 指令說明
 
     Args:
@@ -76,15 +109,77 @@ def handle_command(sender, message: dict, rbac, tm, state: dict):
             sender.send(f"⛔ 權限不足: {perm.reason}")
             return
 
+        msg_id = _send_skeleton(sender, cmd, keyboard=kb_back())
         try:
             from health_engine import render_dashboard
             dashboard = render_dashboard(state)
-            sender.send(truncate(dashboard), keyboard=kb_back())
+            _fill_skeleton(sender, msg_id, dashboard, keyboard=kb_back())
         except Exception as e:
-            sender.send(f"❌ 載入儀表板失敗: {e}")
+            _fill_skeleton(sender, msg_id, f"❌ 載入儀表板失敗: {e}", keyboard=kb_back())
 
     elif cmd == "/help":
         sender.send(page_help())
+
+    elif cmd == "/token":
+        perm = rbac.check_permission(from_id, tenant_id, "view_report")
+        if not perm.allowed:
+            sender.send(f"⛔ 權限不足: {perm.reason}")
+            return
+        msg_id = _send_skeleton(sender, cmd, keyboard=kb_token())
+        try:
+            from token_governance import generate_token_summary
+            _fill_skeleton(sender, msg_id, generate_token_summary(), keyboard=kb_token())
+        except Exception as e:
+            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {e}", keyboard=kb_token())
+        print(f"💰 /token 已回應 (user: {from_id})")
+
+    elif cmd == "/backup":
+        perm = rbac.check_permission(from_id, tenant_id, "view_dashboard")
+        if not perm.allowed:
+            sender.send(f"⛔ 權限不足: {perm.reason}")
+            return
+        msg_id = _send_skeleton(sender, cmd, keyboard=kb_backup())
+        try:
+            _fill_skeleton(sender, msg_id, generate_backup_status(), keyboard=kb_backup())
+        except Exception as e:
+            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {e}", keyboard=kb_backup())
+        print(f"💾 /backup 已回應 (user: {from_id})")
+
+    elif cmd == "/config":
+        perm = rbac.check_permission(from_id, tenant_id, "view_config")
+        if not perm.allowed:
+            sender.send(f"⛔ 權限不足: {perm.reason}")
+            return
+        msg_id = _send_skeleton(sender, cmd, keyboard=kb_config())
+        try:
+            _fill_skeleton(sender, msg_id, generate_config_view(tenant_id), keyboard=kb_config())
+        except Exception as e:
+            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {e}", keyboard=kb_config())
+        print(f"⚙️ /config 已回應 (user: {from_id})")
+
+    elif cmd == "/logs":
+        perm = rbac.check_permission(from_id, tenant_id, "view_logs")
+        if not perm.allowed:
+            sender.send(f"⛔ 權限不足: {perm.reason}")
+            return
+        msg_id = _send_skeleton(sender, cmd, keyboard=kb_logs())
+        try:
+            _fill_skeleton(sender, msg_id, generate_disk_report(), keyboard=kb_logs())
+        except Exception as e:
+            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {e}", keyboard=kb_logs())
+        print(f"📝 /logs 已回應 (user: {from_id})")
+
+    elif cmd == "/info":
+        perm = rbac.check_permission(from_id, tenant_id, "view_dashboard")
+        if not perm.allowed:
+            sender.send(f"⛔ 權限不足: {perm.reason}")
+            return
+        msg_id = _send_skeleton(sender, cmd, keyboard=kb_back())
+        try:
+            _fill_skeleton(sender, msg_id, generate_system_info(tenant_id, from_id), keyboard=kb_back())
+        except Exception as e:
+            _fill_skeleton(sender, msg_id, f"❌ 載入失敗: {e}", keyboard=kb_back())
+        print(f"ℹ️ /info 已回應 (user: {from_id})")
 
     # 其他未知指令 → 不回應（避免干擾 OpenClaw 本身的指令）
 
@@ -131,6 +226,13 @@ def handle_menu_callback(sender, cq: dict, rbac, tm, state: dict):
             sender.answer_callback(cb_id, f"⛔ {perm.reason}")
             return False
         return True
+
+    # ── 重資料頁面：先顯示骨架佔位（即時回應用戶點擊）──
+    _skel = SKELETON_CALLBACK.get((page, action))
+    if _skel and msg_id:
+        _skel_icon, _skel_title = _skel
+        sender.edit(msg_id, skeleton_text(_skel_icon, _skel_title))
+        sender.answer_callback(cb_id)  # 立即移除按鈕載入動畫
 
     # ── 路由 ──
 

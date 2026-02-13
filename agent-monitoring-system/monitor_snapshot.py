@@ -29,10 +29,10 @@ def main():
         print(f"❌ 讀取狀態檔案失敗: {e}")
         return
 
-    # 直接使用 health_engine 的渲染函式
-    sys.path.insert(0, os.path.dirname(__file__))
+    # 使用純文字模式（html=False），因為此腳本經常由 OpenClaw AI 呼叫，
+    # AI 會將輸出作為純文字傳送，不解析 HTML 標籤。
     from health_engine import render_dashboard
-    print(render_dashboard(state))
+    print(render_dashboard(state, html=False))
 
 if __name__ == "__main__":
     main()

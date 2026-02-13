@@ -685,8 +685,34 @@ class TokenTracker:
         calls = self.scan()
         if calls:
             self.aggregate(calls)
+        
+        # 更新預算狀態
+        self._update_budget_status()
+        
         self.save_state()
         return self.get_today_summary()
+    
+    def _update_budget_status(self):
+        """更新預算狀態中的成本和使用率"""
+        today = self.get_today_summary()
+        monthly = self.get_monthly_summary()
+        budget = self.state.get("budget", {})
+        
+        daily_limit = budget.get("daily_limit_usd", 10.0)
+        monthly_limit = budget.get("monthly_limit_usd", 200.0)
+        
+        # 確保 budget_status 存在
+        if "budget_status" not in self.state:
+            self.state["budget_status"] = {}
+        
+        self.state["budget_status"].update({
+            "daily_limit_usd": daily_limit,
+            "monthly_limit_usd": monthly_limit,
+            "today_cost": today["cost_usd"],
+            "month_cost": monthly["total_cost_usd"],
+            "daily_percent": round(today["cost_usd"] / max(daily_limit, 0.001) * 100, 1),
+            "monthly_percent": round(monthly["total_cost_usd"] / max(monthly_limit, 0.001) * 100, 1),
+        })
 
 
 # ─── CLI 入口 ────────────────────────────────────────────

@@ -138,3 +138,10 @@ pnpm-lock.yaml
 *.pid
 *.lock
 *.pid.lock
+# Auto-added by backup engine
+*.pyc
+identity/
+credentials/
+device-auth.json
+telegram-pairing.json
+telegram-allowFrom.json

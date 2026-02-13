@@ -54,13 +54,12 @@ from typing import Dict, List, Optional, Tuple
 
 TZ_GMT8 = timezone(timedelta(hours=8))
 
-# ─── Bot 指令（setMyCommands）────────────────────────────
+# ─── Bot 指令（setMyCommands）────────────────────────
+#
+# 所有指令定義統一在 command_registry.py（唯一來源）。
+# 此處僅匯入，不重複定義。詳見 command_registry.py 的說明。
 
-BOT_COMMANDS = [
-    {"command": "menu", "description": "📱 開啟主控面板"},
-    {"command": "monitor", "description": "📊 系統監控儀表板"},
-    {"command": "help", "description": "❓ 指令說明"},
-]
+from command_registry import MONITOR_COMMANDS as BOT_COMMANDS
 
 
 # ─── Callback Data 編碼/解碼 ─────────────────────────────
@@ -283,13 +282,18 @@ def page_help() -> str:
         f"<b>指令列表：</b>\n"
         f"  /menu — 開啟主控面板\n"
         f"  /monitor — 查看監控儀表板\n"
+        f"  /token — Token 成本摘要\n"
+        f"  /backup — 備份狀態\n"
+        f"  /config — 查看當前設定\n"
+        f"  /logs — 磁碟使用報告\n"
+        f"  /info — 系統資訊\n"
         f"  /help — 顯示此說明\n\n"
         f"<b>快捷操作：</b>\n"
         f"點擊主控面板中的按鈕即可操作\n"
         f"無需記憶任何指令 ✨\n\n"
         f"<b>權限層級：</b>\n"
         f"  👁️ viewer — 檢視監控\n"
-        f"  👤 member — 查看設定/報告\n"
+        f"  👤 member — 查看設定/報告/成本\n"
         f"  🛡️ admin — 重啟/備份/變更設定\n"
         f"  👑 owner — 管理租戶與角色"
     )

@@ -668,12 +668,30 @@ class TelegramSender:
         except Exception:
             return False
 
-    def set_my_commands(self, commands: list) -> bool:
-        """註冊 Bot 指令選單（Telegram 會在輸入框顯示指令提示）"""
+    def set_my_commands(self, commands: list, scope: dict = None) -> bool:
+        """註冊 Bot 指令選單。若提供 scope 則僅在該範圍生效，不影響全域。"""
         try:
+            payload = {"commands": commands}
+            if scope:
+                payload["scope"] = scope
             r = requests.post(
                 f"{self.base}/setMyCommands",
-                json={"commands": commands},
+                json=payload,
+                timeout=10,
+            )
+            return r.status_code == 200 and r.json().get("ok", False)
+        except Exception:
+            return False
+
+    def delete_my_commands(self, scope: dict = None) -> bool:
+        """刪除指定 scope（或全域）的 Bot 指令選單。"""
+        try:
+            payload = {}
+            if scope:
+                payload["scope"] = scope
+            r = requests.post(
+                f"{self.base}/deleteMyCommands",
+                json=payload,
                 timeout=10,
             )
             return r.status_code == 200 and r.json().get("ok", False)
@@ -742,7 +760,15 @@ def _grade_emoji(grade: str) -> str:
     return {"A": "🟢", "B": "🟡", "C": "🟠", "D": "🔴", "F": "💀"}.get(grade, "❓")
 
 
-def render_dashboard(state: dict) -> str:
+def render_dashboard(state: dict, html: bool = True) -> str:
+    """
+    渲染系統監控儀表板。
+
+    Args:
+        state: 監控狀態 dict
+        html:  True → HTML 格式（Telegram sendMessage parse_mode=HTML）
+               False → 純文字（供 OpenClaw AI 呼叫 monitor_snapshot.py 使用）
+    """
     snap = state.get("snapshot", {})
     score = state.get("health_score", 0)
     grade = state.get("health_grade", "?")
@@ -775,30 +801,34 @@ def render_dashboard(state: dict) -> str:
 
     errors_today = state.get("errors", {}).get("today_count", 0)
 
+    # 格式化 helpers — html=False 時輸出純文字
+    def b(text):  return f"<b>{text}</b>" if html else text
+    def c(text):  return f"<code>{text}</code>" if html else text
+
     lines = [
-        f"<b>📌 系統監控儀表板</b>",
+        b("📌 系統監控儀表板"),
         f"{'━' * 30}",
-        f"{_grade_emoji(grade)} <b>健康分數: {score}/100 ({grade})</b>",
-        f"<code>更新: {ts}</code>",
+        f"{_grade_emoji(grade)} {b(f'健康分數: {score}/100 ({grade})')}",
+        f"更新: {c(ts)}" if html else f"更新: {ts}",
         "",
-        f"<b>🖥️ Gateway</b>",
+        b("🖥️ Gateway"),
         f"  {gw_icon} 狀態: {'運行中' if snap.get('gateway_active') else '已停止'}",
         f"  ⏱️ 運行時間: {gw_uptime_str}",
         "",
-        f"<b>📊 系統資源</b>",
-        f"  CPU  {_severity_icon(cpu)} <code>{_bar(cpu)}</code> {cpu:.1f}%",
-        f"  RAM  {_severity_icon(mem)} <code>{_bar(mem)}</code> {mem:.1f}% ({mem_used}/{mem_total}MB)",
-        f"  DISK {_severity_icon(disk)} <code>{_bar(disk)}</code> {disk:.1f}% ({disk_used:.1f}/{disk_total:.1f}GB)",
+        b("📊 系統資源"),
+        f"  CPU  {_severity_icon(cpu)} {c(_bar(cpu))} {cpu:.1f}%" if html else f"  CPU  {_severity_icon(cpu)} {_bar(cpu)} {cpu:.1f}%",
+        f"  RAM  {_severity_icon(mem)} {c(_bar(mem))} {mem:.1f}% ({mem_used}/{mem_total}MB)" if html else f"  RAM  {_severity_icon(mem)} {_bar(mem)} {mem:.1f}% ({mem_used}/{mem_total}MB)",
+        f"  DISK {_severity_icon(disk)} {c(_bar(disk))} {disk:.1f}% ({disk_used:.1f}/{disk_total:.1f}GB)" if html else f"  DISK {_severity_icon(disk)} {_bar(disk)} {disk:.1f}% ({disk_used:.1f}/{disk_total:.1f}GB)",
         f"  LOAD: {load_1:.2f} / {load_5:.2f} / {load_15:.2f}",
         "",
-        f"<b>🤖 子代理</b>",
+        b("🤖 子代理"),
         f"  總數: {sub_total} | 活躍: {sub_active}",
         f"  今日會話: {sess_today} (完成 {sess_done} / 失敗 {sess_fail})",
         "",
-        f"<b>⚙️ 排程任務</b>",
+        b("⚙️ 排程任務"),
         f"  Cron: {cron_ok}/{cron_total} 正常",
         "",
-        f"<b>🐛 錯誤</b>",
+        b("🐛 錯誤"),
         f"  今日: {errors_today} 筆",
     ]
 
@@ -806,11 +836,11 @@ def render_dashboard(state: dict) -> str:
     active_alerts = state.get("alerts", {}).get("active_alerts", [])
     if active_alerts:
         lines.append("")
-        lines.append(f"<b>🚨 活躍告警 ({len(active_alerts)})</b>")
-        for a in active_alerts[-5:]:  # 最多顯示 5 則
+        lines.append(b(f"🚨 活躍告警 ({len(active_alerts)})"))
+        for a in active_alerts[-5:]:
             lines.append(f"  • {a.get('title', '?')}")
 
-    # 備份狀態（快取 5 分鐘，避免每 30 秒重建 BackupEngine 的 I/O）
+    # 備份狀態
     try:
         bk_state_file = os.path.join(BASE_DIR, "..", "backups", "backup_state.json")
         if os.path.exists(bk_state_file):
@@ -821,12 +851,11 @@ def render_dashboard(state: dict) -> str:
                 bk_ts = last_bk[:16]
                 fail = _bs.get("consecutive_failures", 0)
                 bk_icon = "🟢" if fail == 0 else "🟡" if fail < 3 else "🔴"
-                # 計算可用備份數
                 bk_dir = os.path.dirname(bk_state_file)
                 bk_count = len([f for f in os.listdir(bk_dir)
                                if f.startswith("backup_") and f.endswith(".tar.gz")])
                 lines.append("")
-                lines.append(f"<b>💾 備份</b>")
+                lines.append(b("💾 備份"))
                 lines.append(f"  {bk_icon} 最後: {bk_ts} ({bk_count} 份可用)")
                 if fail > 0:
                     lines.append(f"  ⚠️ 連續失敗: {fail} 次")
@@ -843,7 +872,7 @@ def render_dashboard(state: dict) -> str:
         if _ts.get("calls", 0) > 0 or _budget.get("today_cost_usd", 0) > 0:
             _cost_icon = "🟢" if _budget.get("today_pct", 0) < 70 else "🟡" if _budget.get("today_pct", 0) < 90 else "🔴"
             lines.append("")
-            lines.append(f"<b>💰 Token 成本</b>")
+            lines.append(b("💰 Token 成本"))
             lines.append(f"  {_cost_icon} 今日: ${_ts['cost_usd']:.4f} ({_ts['calls']} 次呼叫)")
             lines.append(f"  💳 預算: {_budget['today_pct']:.0f}% (${_budget['daily_limit_usd']:.2f})")
     except Exception as _e:
@@ -879,16 +908,43 @@ def _fmt_uptime(sec: int) -> str:
 
 def _ensure_bot_commands(sender: TelegramSender, state: dict):
     """
-    一次性註冊 Bot 指令選單。
-    透過版本號追蹤，只在首次啟動或版本變更時呼叫 setMyCommands。
+    一次性註冊 Bot 指令選單（僅限 chat scope）。
+
+    策略：
+      1. 讀取全域（default scope）的 OpenClaw 原生指令
+      2. 合併我們的監控指令（同名時用我們的描述覆蓋）
+      3. 以 BotCommandScopeChat 設定到監控 chat
+    這樣在此 chat 中輸入 / 可同時看到 OpenClaw 原生 + 監控自訂指令。
     """
-    from telegram_ui import BOT_COMMANDS
-    cmd_version = "v1"  # 變更 BOT_COMMANDS 時遞增
+    from command_registry import MONITOR_COMMANDS as BOT_COMMANDS
+    cmd_version = "v4"  # v4: 指令統一由 command_registry.py 管理
     if state.get("bot_commands_version") == cmd_version:
         return
-    if sender.set_my_commands(BOT_COMMANDS):
+
+    chat_scope = {"type": "chat", "chat_id": int(sender.chat_id)}
+
+    # v2 曾錯誤覆蓋全域指令，先清除全域以讓 OpenClaw 下次啟動恢復
+    if state.get("bot_commands_version") in ("v1", "v2"):
+        sender.delete_my_commands()  # 清除 default scope
+        print("🔄 已清除錯誤的全域指令覆蓋，OpenClaw 原生指令將在下次啟動時恢復")
+
+    # 讀取全域指令（OpenClaw 原生）
+    global_cmds = []
+    try:
+        r = requests.get(f"{sender.base}/getMyCommands", timeout=10)
+        if r.status_code == 200 and r.json().get("ok"):
+            global_cmds = r.json().get("result", [])
+    except Exception:
+        pass
+
+    # 合併：先放全域，再用我們的覆蓋同名指令
+    our_names = {c["command"] for c in BOT_COMMANDS}
+    merged = [c for c in global_cmds if c["command"] not in our_names]
+    merged.extend(BOT_COMMANDS)
+
+    if sender.set_my_commands(merged, scope=chat_scope):
         state["bot_commands_version"] = cmd_version
-        print(f"✅ Bot 指令選單已註冊 ({cmd_version})")
+        print(f"✅ Bot 指令選單已註冊 ({cmd_version}, chat scope, {len(merged)} 個指令: {len(global_cmds)} 原生 + {len(BOT_COMMANDS)} 自訂)")
 
 
 def _process_updates(sender: TelegramSender, state: dict, gw_running: bool, tm, rbac):
@@ -1122,6 +1178,14 @@ def main() -> int:
 
     # ── 4b. 處理所有 Telegram 更新（指令 + 選單回呼 + 告警按鈕）──
     sender_for_updates = TelegramSender(token, primary_tenant.chat_id)
+
+    # 指令同步：command_registry → openclaw.json（確保單一來源）
+    try:
+        from command_registry import sync_openclaw_json
+        sync_openclaw_json()
+    except Exception as _sync_err:
+        print(f"⚠️ 指令同步失敗: {_sync_err}")
+
     _ensure_bot_commands(sender_for_updates, primary_state)
     _process_updates(sender_for_updates, primary_state, gw_now, tm, rbac)
 
