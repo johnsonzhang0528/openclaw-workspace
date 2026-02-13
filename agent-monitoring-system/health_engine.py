@@ -918,7 +918,7 @@ def _ensure_bot_commands(sender: TelegramSender, state: dict):
     這樣在此 chat 中輸入 / 可同時看到 OpenClaw 原生 + 監控自訂指令。
     """
     from command_registry import MONITOR_COMMANDS as BOT_COMMANDS
-    cmd_version = "v4"  # v4: 指令統一由 command_registry.py 管理
+    cmd_version = "v5"  # v5: 6 個 AI 指令轉為直接執行（direct_commands.py）
     if state.get("bot_commands_version") == cmd_version:
         return
 
