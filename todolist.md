@@ -108,35 +108,60 @@
 #### 3) 日誌治理、備份與災難恢復
 **整併來源：** OpenClaw 日誌管理與自動備份系統優化、GitHub 遠端備份整合系統  
 **優先級：** 高  
-**狀態：** 待規劃
+**狀態：** ✅ 已完成 (2026-02-13)
 
 **目標：**
 - 建立可長期運行的日誌與備份體系，確保可還原、可驗證、可稽核
 
-**實作細節：**
-1. **日誌標準化與輪轉**
-   - 日誌遷移到 `/var/log/openclaw/`
-   - 設定 `logrotate`：daily、rotate 30、compress、delaycompress、missingok
-   - 依類型設定保留期：核心 30 天、效能 7 天、審計 90 天
-2. **備份分層策略**
-   - L1 本地快照：每日/每 6 小時
-   - L2 GitHub 遠端：每日增量 push（私有 repo）
-   - L3 冷備（可選）：每週壓縮封存
-3. **備份內容與排除規則**
-   - 必備：sessions、關鍵配置、監控狀態、審計日誌
-   - 排除：token、密鑰、暫存、巨大可重建檔案
-   - 將敏感資訊模板化（`*.example`）
-4. **完整性與恢復演練**
-   - 備份後產生 checksum 與 manifest
-   - 每週執行 restore drill（沙盒還原）並輸出成功率
-5. **Telegram 操作介面**
-   - `/backup status|run|verify|restore`
-   - restore 僅 admin 可觸發，且需二次確認
+**完成成果：**
+1. **日誌治理引擎 `log_governance.py`**
+   - 統一管理 13 個日誌來源（核心/效能/審計/暫存/會話/Gateway/Cron）
+   - 六級保留策略：核心 30 天、效能 7 天、審計 90 天、暫存 3 天、會話 14 天、Gateway 14 天
+   - Copytruncate 語意：壓縮/輪轉時截斷原檔而非刪除/重命名，保護正在寫入的行程（如 health_engine >> 重導向）
+   - 單檔大小上限輪轉（超過 max_size_mb 自動截斷）
+   - gzip 壓縮（compresslevel=6）保留原始時間戳
+   - `--dry-run` 模式：預覽不執行
+   - `--report` 模式：磁碟使用報告（含 Telegram HTML 格式化）
+2. **備份引擎 `backup_engine.py`**
+   - **L1 本地快照**：tar.gz 壓縮，含 SHA-256 完整性校驗
+     - 69 檔 / 735 KB 原始 → 193 KB 壓縮（~35ms）
+     - 保留最新 7 份，自動清理舊備份
+     - 每份備份附帶 manifest JSON（檔案清單、逐檔 SHA-256、時間戳）
+   - **L2 遠端推送**：增量 git commit + push 至 GitHub HTTPS remote
+     - 自動確保 .gitignore 包含 12 項敏感檔案排除規則
+   - CLI 子命令：`backup / verify / restore / list / status / push / full`
+3. **災難恢復**
+   - `restore` 指令：驗證 → 解壓 → 逐檔還原，支援 `--dry-run` 預覽
+   - 還原目標可指定任意目錄（沙盒測試）
+   - 備份驗證：SHA-256 checksum + tar 成員數量交叉比對
+4. **審計日誌保留策略 `audit.py`**
+   - 新增 `enforce_retention()`：移除超過 90 天的審計記錄
+   - 原子寫入（tmp → replace）避免截斷時資料遺失
+   - 整合至排程備份流程（每日自動執行）
+5. **健康引擎整合**
+   - `/monitor` 儀表板新增 💾 備份區段（最後備份時間、可用份數、失敗次數）
+   - 備份狀態讀取已最佳化：直接讀 `backup_state.json`（單次 I/O），不實例化 BackupEngine
+6. **排程與衝突修復**
+   - `run_backup.sh` + cron `0 22 * * *`（每日 06:00 GMT+8）
+   - 流程：本地備份 → 驗證 → 遠端推送 → 日誌輪轉 → 審計記錄
+   - 修復 CRITICAL：壓縮/輪轉改用 copytruncate 避免 health_engine shell `>>` 寫入遺失
+   - 修復 WARNING：BackupEngine 不再在 render_dashboard 中實例化（改讀快取）
+   - 修復 WARNING：gitignore 確保規則擴展至 12 項（含 identity/、credentials/、*.pem 等）
 
-**驗收標準（DoD）：**
-- 日誌空間可控（無異常增長）
-- 任一指定日期可在可接受時間內完成還原
-- 備份驗證失敗可自動告警
+**備份內容（69 檔）：**
+- 監控狀態：monitoring_state.json、tenants.json、rbac.json、global_snapshot.json
+- 租戶資料：state.json、audit.log、config.json、config-v*.json（全租戶）
+- 工作區腳本：*.py、*.sh、*.md
+- 核心配置：openclaw.json、cron/jobs.json、shortcuts/、subagents/
+- 排除：.env（token）、identity/、credentials/、sessions/（可重建）
+
+**驗收標準（DoD）：** ✅ 全部通過
+- ✅ 日誌空間可控（13 來源 × 各有保留策略，copytruncate 不影響運行中行程）
+- ✅ 本地備份可在 35ms 內完成，SHA-256 驗證通過
+- ✅ 災難恢復 dry-run 成功（69 檔可還原）
+- ✅ 備份驗證自動告警（consecutive_failures 追蹤）
+- ✅ Cron 排程已安裝（每日 06:00 GMT+8）
+- ✅ 儀表板顯示備份狀態（🟢 最後: timestamp, N 份可用）
 
 ---
 

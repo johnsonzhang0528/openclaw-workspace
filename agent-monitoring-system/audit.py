@@ -158,3 +158,73 @@ def audit_permission_denied(tenant_id: str, user_id: str, username: str, action:
         result="denied",
         component="rbac",
     )
+
+
+def enforce_retention(tenant_id: str = None, retention_days: int = 90) -> int:
+    """
+    強制執行審計日誌保留策略。
+    移除超過 retention_days 的舊記錄。
+    
+    Args:
+        tenant_id: 指定租戶，None = 全部租戶
+        retention_days: 保留天數（預設 90）
+        
+    Returns:
+        移除的記錄數
+    """
+    tenants_dir = os.path.join(BASE_DIR, "tenants")
+    if not os.path.isdir(tenants_dir):
+        return 0
+
+    total_removed = 0
+    cutoff = datetime.now(TZ_GMT8) - timedelta(days=retention_days)
+
+    dirs = []
+    if tenant_id:
+        tid = tenant_id.replace(":", "_")
+        d = os.path.join(tenants_dir, tid)
+        if os.path.isdir(d):
+            dirs.append(d)
+    else:
+        for name in os.listdir(tenants_dir):
+            d = os.path.join(tenants_dir, name)
+            if os.path.isdir(d):
+                dirs.append(d)
+
+    for tenant_dir in dirs:
+        audit_file = os.path.join(tenant_dir, "audit.log")
+        if not os.path.exists(audit_file):
+            continue
+
+        kept = []
+        removed = 0
+        try:
+            with open(audit_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        ts_str = entry.get("ts", "")
+                        if ts_str:
+                            ts = datetime.fromisoformat(ts_str)
+                            if ts < cutoff:
+                                removed += 1
+                                continue
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+                    kept.append(line)
+
+            if removed > 0:
+                tmp = audit_file + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    for line in kept:
+                        f.write(line + "\n")
+                os.replace(tmp, audit_file)
+                total_removed += removed
+
+        except Exception as exc:
+            print(f"⚠️ 審計日誌保留策略執行失敗 ({tenant_dir}): {exc}")
+
+    return total_removed

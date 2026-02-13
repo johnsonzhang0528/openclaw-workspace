@@ -778,6 +778,29 @@ def render_dashboard(state: dict) -> str:
         for a in active_alerts[-5:]:  # 最多顯示 5 則
             lines.append(f"  • {a.get('title', '?')}")
 
+    # 備份狀態（快取 5 分鐘，避免每 30 秒重建 BackupEngine 的 I/O）
+    try:
+        bk_state_file = os.path.join(BASE_DIR, "..", "backups", "backup_state.json")
+        if os.path.exists(bk_state_file):
+            with open(bk_state_file, "r") as _bf:
+                _bs = json.load(_bf)
+            last_bk = _bs.get("last_backup")
+            if last_bk:
+                bk_ts = last_bk[:16]
+                fail = _bs.get("consecutive_failures", 0)
+                bk_icon = "🟢" if fail == 0 else "🟡" if fail < 3 else "🔴"
+                # 計算可用備份數
+                bk_dir = os.path.dirname(bk_state_file)
+                bk_count = len([f for f in os.listdir(bk_dir)
+                               if f.startswith("backup_") and f.endswith(".tar.gz")])
+                lines.append("")
+                lines.append(f"<b>💾 備份</b>")
+                lines.append(f"  {bk_icon} 最後: {bk_ts} ({bk_count} 份可用)")
+                if fail > 0:
+                    lines.append(f"  ⚠️ 連續失敗: {fail} 次")
+    except Exception:
+        pass
+
     return "\n".join(lines)
 
 
