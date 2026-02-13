@@ -833,6 +833,22 @@ def render_dashboard(state: dict) -> str:
     except Exception:
         pass
 
+    # Token 成本摘要
+    try:
+        from token_tracker import TokenTracker
+        _tt = TokenTracker()
+        _tt._load_buckets()
+        _ts = _tt.get_today_summary()
+        _budget = _tt.get_budget()
+        if _ts.get("calls", 0) > 0 or _budget.get("today_cost_usd", 0) > 0:
+            _cost_icon = "🟢" if _budget.get("today_pct", 0) < 70 else "🟡" if _budget.get("today_pct", 0) < 90 else "🔴"
+            lines.append("")
+            lines.append(f"<b>💰 Token 成本</b>")
+            lines.append(f"  {_cost_icon} 今日: ${_ts['cost_usd']:.4f} ({_ts['calls']} 次呼叫)")
+            lines.append(f"  💳 預算: {_budget['today_pct']:.0f}% (${_budget['daily_limit_usd']:.2f})")
+    except Exception as _e:
+        print(f"⚠️ Dashboard Token section failed: {_e}")
+
     return "\n".join(lines)
 
 
@@ -1111,10 +1127,20 @@ def main() -> int:
 
     tm.save_tenant_state(primary_tenant, primary_state)
 
+    # ── 4c. Token 成本追蹤（增量掃描 + 預算告警）──
+    token_summary = None
+    try:
+        from token_governance import run_token_check
+        _budget_alerts, token_summary = run_token_check(sender_for_updates)
+        if _budget_alerts:
+            print(f"💰 Token 預算告警: {len(_budget_alerts)} 則")
+    except Exception as _te:
+        print(f"⚠️ Token 追蹤失敗: {_te}")
+
     # ── 5. 逐租戶分發告警與儀表板 ──
     total_alerts_sent = 0
     for tenant in tenants:
-        sent = _process_tenant(token, tenant, tm, snap, score, grade, gw_now, global_heal_msg)
+        sent = _process_tenant(token, tenant, tm, snap, score, grade, gw_now, global_heal_msg, token_summary)
         total_alerts_sent += sent
 
     if total_alerts_sent == 0:
@@ -1125,7 +1151,8 @@ def main() -> int:
 
 
 def _process_tenant(token: str, tenant, tm, snap: dict, score: int, grade: str,
-                    gw_now: bool, global_heal_msg: str = None) -> int:
+                    gw_now: bool, global_heal_msg: str = None,
+                    token_summary: dict = None) -> int:
     """
     處理單一租戶：告警 + 儀表板更新。
     自癒已在全域 main() 中處理，此處僅負責告警分發與儀表板。

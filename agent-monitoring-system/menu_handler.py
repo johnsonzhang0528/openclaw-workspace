@@ -22,9 +22,10 @@ from typing import Optional
 from telegram_ui import (
     parse_cb, truncate,
     kb_main_menu, kb_monitor, kb_system, kb_backup, kb_config, kb_logs, kb_back,
-    kb_confirm_restart,
+    kb_confirm_restart, kb_token,
     page_home, page_monitor_menu, page_system_menu, page_backup_menu,
     page_config_menu, page_logs_menu, page_confirm_restart, page_help,
+    page_token_menu,
     generate_perf_detail, generate_recent_alerts, generate_gateway_logs,
     generate_health_check, generate_backup_status, generate_backup_list,
     generate_config_view, generate_config_history, generate_disk_report,
@@ -152,6 +153,9 @@ def handle_menu_callback(sender, cq: dict, rbac, tm, state: dict):
 
     elif page == "log":
         _page_logs(show, check_perm, action)
+
+    elif page == "tok":
+        _page_token(show, check_perm, action)
 
     elif page == "info":
         show(generate_system_info(tenant_id, from_id), kb_back())
@@ -283,6 +287,44 @@ def _page_logs(show, check_perm, action):
         show(generate_disk_report(), kb_back())
     else:
         show(page_logs_menu(), kb_logs())
+
+
+def _page_token(show, check_perm, action):
+    """💰 Token 成本"""
+    if not check_perm("view_report"):
+        return
+
+    if action == "summary":
+        try:
+            from token_governance import generate_token_summary
+            show(truncate(generate_token_summary()), kb_back())
+        except Exception as e:
+            show(f"❌ 載入失敗: {e}", kb_back())
+
+    elif action == "detail":
+        try:
+            from token_governance import generate_token_detail
+            show(truncate(generate_token_detail()), kb_back())
+        except Exception as e:
+            show(f"❌ 載入失敗: {e}", kb_back())
+
+    elif action == "hourly":
+        try:
+            from token_governance import generate_token_hourly
+            show(truncate(generate_token_hourly()), kb_back())
+        except Exception as e:
+            show(f"❌ 載入失敗: {e}", kb_back())
+
+    elif action == "budget":
+        try:
+            from token_governance import generate_budget_status
+            show(truncate(generate_budget_status()), kb_back())
+        except Exception as e:
+            show(f"❌ 載入失敗: {e}", kb_back())
+
+    else:
+        # 子選單首頁
+        show(page_token_menu(), kb_token())
 
 
 # ─── 操作執行 ────────────────────────────────────────────

@@ -51,6 +51,9 @@ CONFIG_SCHEMA = {
     "features.self_heal":             {"type": bool},
     "features.error_tracking":        {"type": bool},
     "features.restart_button":        {"type": bool},
+    # Token 成本治理
+    "budget.daily_limit_usd":         {"type": (int, float), "min": 0.01, "max": 1000},
+    "budget.monthly_limit_usd":       {"type": (int, float), "min": 0.1, "max": 50000},
 }
 
 

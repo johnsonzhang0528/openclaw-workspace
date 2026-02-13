@@ -35,7 +35,12 @@ callback_data 格式：
   ├── ⚙️ 設定管理 (cfg)     [member+]
   │   ├── 📋 查看設定     (cfg:view)
   │   └── 📜 變更紀錄     (cfg:history)
-  ├── 📝 日誌報告 (log)
+  ├── � Token 成本 (tok)
+  │   ├── 💰 成本摘要     (tok:summary)
+  │   ├── 📊 費用詳情     (tok:detail)
+  │   ├── ⏰ 24h 分佈     (tok:hourly)
+  │   └── 💳 預算狀態     (tok:budget)
+  ├── �📝 日誌報告 (log)
   │   └── 📊 磁碟使用報告 (log:disk)
   └── ℹ️ 系統資訊 (info)
 """
@@ -101,7 +106,8 @@ def kb_main_menu() -> list:
     return [
         [_btn("📊 監控中心", cb("mon")),   _btn("🔧 系統操作", cb("sys"))],
         [_btn("💾 備份管理", cb("bak")),   _btn("⚙️ 設定管理", cb("cfg"))],
-        [_btn("📝 日誌報告", cb("log")),   _btn("ℹ️ 系統資訊", cb("info"))],
+        [_btn("� Token 成本", cb("tok")), _btn("📝 日誌報告", cb("log"))],
+        [_btn("ℹ️ 系統資訊", cb("info"))],
     ]
 
 
@@ -144,6 +150,15 @@ def kb_logs() -> list:
     """日誌報告子選單"""
     return [
         [_btn("📊 磁碟使用報告", cb("log", "disk"))],
+        [_btn("🔙 返回主選單", cb("home"))],
+    ]
+
+
+def kb_token() -> list:
+    """Token 成本子選單"""
+    return [
+        [_btn("💰 成本摘要", cb("tok", "summary")), _btn("📊 費用詳情", cb("tok", "detail"))],
+        [_btn("⏰ 24h 分佈", cb("tok", "hourly")), _btn("💳 預算狀態", cb("tok", "budget"))],
         [_btn("🔙 返回主選單", cb("home"))],
     ]
 
@@ -235,6 +250,15 @@ def page_logs_menu() -> str:
     """日誌報告子選單頁面"""
     return (
         f"<b>📝 日誌報告</b>\n"
+        f"{'━' * 25}\n\n"
+        f"選擇操作："
+    )
+
+
+def page_token_menu() -> str:
+    """Token 成本子選單頁面"""
+    return (
+        f"<b>💰 Token 成本管理</b>\n"
         f"{'━' * 25}\n\n"
         f"選擇操作："
     )
@@ -648,7 +672,7 @@ def generate_system_info(tenant_id: str, user_id: str) -> str:
         pass
 
     # Version
-    lines.append(f"📦 引擎版本: v3.0")
+    lines.append(f"📦 引擎版本: v4.0")
     lines.append(f"\n<code>{datetime.now(TZ_GMT8).strftime('%Y-%m-%d %H:%M:%S')} GMT+8</code>")
 
     return truncate("\n".join(lines))

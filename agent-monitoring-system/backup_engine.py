@@ -60,6 +60,8 @@ BACKUP_INCLUDE = [
     "monitoring/rbac.json",
     "monitoring/global_snapshot.json",
     "monitoring/gateway_restart_state.json",
+    "monitoring/token_tracker_state.json",
+    "monitoring/usage_report_state.json",
     # 租戶資料（state + audit + config）
     "monitoring/tenants/",
     # 工作區腳本（非 .env）
