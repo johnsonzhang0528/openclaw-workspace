@@ -3,9 +3,10 @@ import { execFile } from "node:child_process";
 const SCRIPT = "/root/.openclaw/workspace/agent-monitoring-system/send_session_report.py";
 
 const sendSessionReport = async (event) => {
-    if (event.type !== "command" || event.action !== "new") return;
+    // /new → action="new", /reset → action="reset"
+    if (event.type !== "command" || !["new", "reset"].includes(event.action)) return;
 
-    console.log("[session-report] hook triggered, running send_session_report.py …");
+    console.log(`[session-report] hook triggered (action=${event.action}), running send_session_report.py …`);
 
     try {
         await new Promise((resolve, reject) => {

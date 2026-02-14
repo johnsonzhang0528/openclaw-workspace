@@ -1,55 +1,71 @@
 ---
 name: system-monitor
-description: 查看系統健康狀態、資源使用率、Gateway 運行狀況
+description: 系統監控、開發日報、費用報告、Git 操作、備份 — 直接腳本執行
 metadata: {"clawdbot":{"emoji":"📊","requires":{"bins":["python3"]}}}
 ---
 
-# 系統監控
+# 系統監控與直接指令
 
-當使用者要求查看系統狀態、監控資訊、健康檢查、/monitor 時使用。
+以下指令全部透過腳本直接執行，**不需要你自行組裝內容**。
+執行指令 → 取得輸出 → **原封不動傳送給使用者**。
+**絕對不要摘要、改寫或省略輸出內容。**
 
-## 快速查詢（<50ms，讀取快取）
-
-```bash
-python3 /root/.openclaw/workspace/agent-monitoring-system/monitor_snapshot.py
-```
-
-回傳最近一次採集的儀表板（每 30 秒由 cron 更新）。
-直接將輸出內容展示給使用者即可。
-
-## 強制立即採集（需要最新資料時）
+## /monitor — 系統監控儀表板
 
 ```bash
-cd /root/.openclaw/workspace/agent-monitoring-system && python3 health_engine.py 2>&1
-python3 /root/.openclaw/workspace/agent-monitoring-system/monitor_snapshot.py
+python3 /root/.openclaw/workspace/agent-monitoring-system/direct_commands.py monitor
 ```
 
-## 查看錯誤紀錄
+## /devreport — 今日開發進度報告
 
 ```bash
-tail -20 /root/.openclaw/monitoring/error_events.jsonl 2>/dev/null
+python3 /root/.openclaw/workspace/agent-monitoring-system/direct_commands.py devreport
 ```
 
-## 查看健康分數歷史
+## /costreport — API 使用量與費用報告
 
 ```bash
-python3 -c "
-import json
-with open('/root/.openclaw/monitoring/monitoring_state.json') as f:
-    s = json.load(f)
-print(f'健康分數: {s[\"health_score\"]}/100 ({s[\"health_grade\"]})')
-print(f'更新時間: {s[\"last_updated\"]}')
-print(f'Gateway: {\"運行中\" if s[\"snapshot\"][\"gateway_active\"] else \"停止\"}'  )
-print(f'CPU: {s[\"snapshot\"][\"cpu_percent\"]:.1f}%')
-print(f'RAM: {s[\"snapshot\"][\"memory_percent\"]:.1f}%')
-print(f'Disk: {s[\"snapshot\"][\"disk_percent\"]:.1f}%')
-print(f'今日錯誤: {s.get(\"errors\",{}).get(\"today_count\",0)} 筆')
-"
+python3 /root/.openclaw/workspace/agent-monitoring-system/direct_commands.py costreport
 ```
 
-## 注意
+## /gitlog — 最近 Git 提交紀錄
 
-- 儀表板輸出包含 HTML 標籤（`<b>`, `<code>`），可在 Telegram 中直接傳送
-- 監控狀態檔案: `/root/.openclaw/monitoring/monitoring_state.json`
-- 採集間隔: 30 秒 (cron)
-- 告警會自動推送到 Telegram，不需要手動觸發
+```bash
+python3 /root/.openclaw/workspace/agent-monitoring-system/direct_commands.py gitlog
+```
+
+## /gitdiff — 目前未提交的變更
+
+```bash
+python3 /root/.openclaw/workspace/agent-monitoring-system/direct_commands.py gitdiff
+```
+
+## /gitbranch — 分支列表
+
+```bash
+python3 /root/.openclaw/workspace/agent-monitoring-system/direct_commands.py gitbranch
+```
+
+## /quickbackup — 快速備份並推送
+
+```bash
+python3 /root/.openclaw/workspace/agent-monitoring-system/direct_commands.py quickbackup
+```
+
+## /info — 系統資訊
+
+```bash
+python3 /root/.openclaw/workspace/agent-monitoring-system/direct_commands.py info
+```
+
+## 規則
+
+1. 收到以上任何指令時，**直接執行對應的 bash 指令**
+2. 將腳本輸出**完整、原封不動**傳送給使用者
+3. **不要加上任何額外說明、摘要或評論**
+4. 輸出已包含完整格式（HTML 標籤），不需要額外處理
+5. 如果需要最新監控資料（而非快取），先執行：
+   ```bash
+   cd /root/.openclaw/workspace/agent-monitoring-system && python3 health_engine.py 2>&1
+   ```
+   再執行 monitor 指令

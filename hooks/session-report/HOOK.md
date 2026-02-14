@@ -6,7 +6,7 @@ metadata:
     "openclaw":
       {
         "emoji": "📊",
-        "events": ["command:new"],
+        "events": ["command:new", "command:reset"],
         "requires": { "config": ["workspace.dir"] },
       },
   }

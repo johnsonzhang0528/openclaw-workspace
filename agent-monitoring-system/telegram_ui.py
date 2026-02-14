@@ -101,12 +101,11 @@ def _btn(text: str, data: str) -> dict:
 
 
 def kb_main_menu() -> list:
-    """主選單鍵盤"""
+    """主選單鍵盤 — 每個按鈕對應一個 slash command，確保 Gateway AI 路徑也能正確處理"""
     return [
-        [_btn("📊 監控中心", cb("mon")),   _btn("🔧 系統操作", cb("sys"))],
-        [_btn("💾 備份管理", cb("bak")),   _btn("⚙️ 設定管理", cb("cfg"))],
-        [_btn("� Token 成本", cb("tok")), _btn("📝 日誌報告", cb("log"))],
-        [_btn("ℹ️ 系統資訊", cb("info"))],
+        [_btn("📊 監控儀表板", "/monitor"),  _btn("📋 開發日報", "/devreport")],
+        [_btn("💰 費用報告", "/costreport"), _btn("📜 Git 紀錄", "/gitlog")],
+        [_btn("💾 快速備份", "/quickbackup"), _btn("ℹ️ 系統資訊", "/info")],
     ]
 
 
@@ -193,8 +192,14 @@ def _escape_html(text: str) -> str:
 
 # ─── 靜態頁面內容 ────────────────────────────────────────
 
-def page_home(score: int = 0, grade: str = "?", ts: str = "") -> str:
-    """主選單頁面"""
+def page_home(score: int = 0, grade: str = "?", ts: str = "", compact: bool = False) -> str:
+    """主選單頁面。compact=True 時省略健康分數（/reset 時 Dashboard 已顯示）"""
+    if compact:
+        return (
+            f"<b>📱 主控面板</b>\n"
+            f"{'━' * 25}\n"
+            f"選擇要執行的操作："
+        )
     ge = {"A": "🟢", "B": "🟡", "C": "🟠", "D": "🔴", "F": "💀"}.get(grade, "❓")
     return (
         f"<b>📱 主控面板</b>\n"

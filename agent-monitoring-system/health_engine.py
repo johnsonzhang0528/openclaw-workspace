@@ -703,7 +703,7 @@ class TelegramSender:
         try:
             r = requests.post(
                 f"{self.base}/getUpdates",
-                json={"offset": offset, "timeout": 0, "allowed_updates": ["callback_query", "message"]},
+                json={"offset": offset, "timeout": 0, "allowed_updates": ["callback_query"]},
                 timeout=3,
             )
             r.raise_for_status()
@@ -950,13 +950,18 @@ def _ensure_bot_commands(sender: TelegramSender, state: dict):
 
 def _process_updates(sender: TelegramSender, state: dict, gw_running: bool, tm, rbac):
     """
-    處理所有待處理的 Telegram 更新。
+    處理所有待處理的 Telegram callback_query 更新。
+
+    架構分工（allowed_updates 分流）：
+      - Gateway  → 只收 message（AI 對話 + /指令）
+      - 本函式   → 只收 callback_query（選單按鈕）
 
     路由規則：
-      - callback_data 以 "m:" 開頭 → 主控面板選單（menu_handler）
-      - callback_data == "/restart"  → 舊版告警按鈕（向後相容）
-      - callback_data 其他 /指令     → 舊版告警按鈕資訊回應
-      - message 以 "/" 開頭         → 指令處理（menu_handler）
+      - callback_data 以 "m:" 開頭       → 主控面板選單（menu_handler）
+      - callback_data 以 "/" 開頭        → 指令處理（menu_handler）
+      - callback_data 以 "commands_page_" → Gateway 內建（提示用文字輸入）
+      - callback_data 以 "mdl_" 開頭     → Gateway 內建（提示用文字輸入）
+      - 其他                              → toast 提示
     """
     last_update_id = state.get("last_update_id", 0)
     updates = sender.get_updates(offset=last_update_id + 1)
@@ -969,41 +974,41 @@ def _process_updates(sender: TelegramSender, state: dict, gw_running: bool, tm, 
         if uid > new_id:
             new_id = uid
 
-        # ── Callback Query ──
+        # ── Callback Query（唯一處理的 update 類型）──
         cq = update.get("callback_query")
-        if cq:
-            cb_data = cq.get("data", "")
-            if cb_data.startswith("m:"):
-                # 主控面板選單回呼
-                try:
-                    from menu_handler import handle_menu_callback
-                    handle_menu_callback(sender, cq, rbac, tm, state)
-                except Exception as exc:
-                    print(f"⚠️ Menu callback error: {exc}")
-                    sender.answer_callback(cq.get("id", ""), f"❌ {exc}")
-            elif cb_data == "/restart":
-                # 舊版告警重啟按鈕（向後相容）
-                _handle_legacy_restart(sender, cq, state, rbac)
-            elif cb_data in ("/logs", "/health", "/tasks", "/perf"):
-                # 舊版告警資訊按鈕 → 回應對應內容
-                _handle_legacy_info(sender, cq, cb_data)
-            elif cb_data.startswith("/exec "):
-                # 安全指令執行（僅允許白名單）
-                _handle_safe_exec(sender, cq, cb_data)
-            else:
-                sender.answer_callback(cq.get("id", ""), "此功能開發中")
+        if not cq:
             continue
 
-        # ── Message（指令）──
-        msg = update.get("message")
-        if msg:
-            text = (msg.get("text") or "").strip()
-            if text.startswith("/"):
-                try:
-                    from menu_handler import handle_command
-                    handle_command(sender, msg, rbac, tm, state)
-                except Exception as exc:
-                    print(f"⚠️ Command error: {exc}")
+        cb_data = cq.get("data", "")
+        cb_id = cq.get("id", "")
+
+        if cb_data.startswith("m:"):
+            # 主控面板選單回呼
+            try:
+                from menu_handler import handle_menu_callback
+                handle_menu_callback(sender, cq, rbac, tm, state)
+            except Exception as exc:
+                print(f"⚠️ Menu callback error: {exc}")
+                sender.answer_callback(cb_id, f"❌ {exc}")
+
+        elif cb_data.startswith("/"):
+            # 主控面板按鈕 slash command → 轉為 handle_command 處理
+            try:
+                sender.answer_callback(cb_id, "")
+                fake_msg = cq.get("message", {})
+                fake_msg["text"] = cb_data
+                fake_msg["from"] = cq.get("from", {})
+                from menu_handler import handle_command
+                handle_command(sender, fake_msg, rbac, tm, state)
+            except Exception as exc:
+                print(f"⚠️ Callback command error: {exc}")
+
+        elif cb_data.startswith("commands_page_") or cb_data.startswith("mdl_"):
+            # Gateway 內建功能的 callback — 分流後無法由 Gateway 處理
+            sender.answer_callback(cb_id, "請直接輸入 /commands 或 /model")
+
+        else:
+            sender.answer_callback(cb_id, "此功能開發中")
 
     state["last_update_id"] = new_id
 
@@ -1177,7 +1182,7 @@ def main() -> int:
     if gw_now and not primary_state.get("gateway_prev_running", True):
         reset_self_heal_on_recovery(primary_state)
 
-    # ── 4b. 處理所有 Telegram 更新（指令 + 選單回呼 + 告警按鈕）──
+    # ── 4b. Bot 指令同步（不再處理 Telegram 更新 — 由 Gateway spawn callback_bridge.py）──
     sender_for_updates = TelegramSender(token, primary_tenant.chat_id)
 
     # 指令同步：command_registry → openclaw.json（確保單一來源）
@@ -1188,7 +1193,8 @@ def main() -> int:
         print(f"⚠️ 指令同步失敗: {_sync_err}")
 
     _ensure_bot_commands(sender_for_updates, primary_state)
-    _process_updates(sender_for_updates, primary_state, gw_now, tm, rbac)
+    # 注意：_process_updates() 已不再呼叫
+    # callback_query 由 Gateway 攔截後 spawn callback_bridge.py 即時處理
 
     tm.save_tenant_state(primary_tenant, primary_state)
 

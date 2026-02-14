@@ -279,6 +279,18 @@ def handle_menu_callback(sender, cq: dict, rbac, tm, state: dict):
     elif page == "info":
         show(generate_system_info(tenant_id, from_id), kb_back())
 
+    elif not page and cb_data.startswith("/"):
+        # slash command callback（主選單按鈕走 Gateway AI 路徑為主，
+        # 但 health_engine 偶爾也會攔截到，此處做 fallback 處理）
+        try:
+            from direct_commands import is_direct_command, execute as execute_direct
+            if is_direct_command(cb_data):
+                show(execute_direct(cb_data), kb_back())
+            else:
+                sender.answer_callback(cb_id, "未知指令")
+        except Exception as e:
+            show(f"❌ {_esc(str(e))}", kb_back())
+
     else:
         sender.answer_callback(cb_id, "未知操作")
 

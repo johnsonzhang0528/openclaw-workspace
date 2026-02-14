@@ -182,6 +182,49 @@ def cmd_quickbackup() -> str:
         return f"❌ 備份失敗: {_esc(str(e))}"
 
 
+def cmd_info() -> str:
+    """系統資訊概覽。"""
+    import json as _json
+    lines = [f"<b>ℹ️ 系統資訊</b>", f"{'━' * 25}"]
+
+    # Uptime
+    try:
+        with open("/proc/uptime") as f:
+            sec = int(float(f.read().split()[0]))
+        d, rem = divmod(sec, 86400)
+        h, rem = divmod(rem, 3600)
+        m = rem // 60
+        lines.append(f"\n⏱️ 系統運行: {d}天 {h}時 {m}分")
+    except Exception:
+        pass
+
+    # Kernel
+    kernel = _run("uname -r")
+    if not kernel.startswith(("⚠", "❌")):
+        lines.append(f"🐧 Kernel: <code>{_esc(kernel)}</code>")
+
+    # Gateway
+    gw = _run("systemctl --user is-active openclaw-gateway")
+    gw_icon = "🟢" if gw.strip() == "active" else "🔴"
+    lines.append(f"🖥️ Gateway: {gw_icon} <b>{_esc(gw.strip())}</b>")
+
+    # Backup
+    try:
+        bk_dir = "/root/.openclaw/backups"
+        bk_count = len([fn for fn in os.listdir(bk_dir)
+                        if fn.startswith("backup_") and fn.endswith(".tar.gz")])
+        lines.append(f"💾 備份: {bk_count} 份可用")
+    except Exception:
+        pass
+
+    # OpenClaw version
+    ver = _run("openclaw --version 2>/dev/null || echo unknown")
+    lines.append(f"📦 OpenClaw: <code>{_esc(ver.splitlines()[0][:60])}</code>")
+
+    lines.append(f"\n<code>{datetime.now(TZ_GMT8).strftime('%Y-%m-%d %H:%M:%S')} GMT+8</code>")
+    return "\n".join(lines)
+
+
 # ═══════════════════════════════════════════════════════════
 # 指令路由
 # ═══════════════════════════════════════════════════════════
@@ -193,6 +236,7 @@ DIRECT_COMMANDS = {
     "/gitdiff":      cmd_gitdiff,
     "/gitbranch":    cmd_gitbranch,
     "/quickbackup":  cmd_quickbackup,
+    "/info":         cmd_info,
 }
 
 
@@ -219,3 +263,54 @@ def execute(cmd: str) -> str:
     if not handler:
         raise KeyError(f"不支援的直接指令: {cmd}")
     return handler()
+
+
+# ═══════════════════════════════════════════════════════════
+# CLI 介面 — 供 OpenClaw AI skill 直接呼叫
+# ═══════════════════════════════════════════════════════════
+#
+# 用法:
+#   python3 direct_commands.py devreport
+#   python3 direct_commands.py costreport
+#   python3 direct_commands.py gitlog
+#   python3 direct_commands.py gitdiff
+#   python3 direct_commands.py gitbranch
+#   python3 direct_commands.py quickbackup
+#   python3 direct_commands.py monitor       ← 監控儀表板
+
+def cmd_monitor() -> str:
+    """讀取快取的監控狀態並產生儀表板。"""
+    try:
+        state_file = "/root/.openclaw/monitoring/monitoring_state.json"
+        if not os.path.exists(state_file):
+            return "⚠️ 監控系統尚未執行第一次採集，請稍候 30 秒"
+        import json as _json
+        with open(state_file, "r", encoding="utf-8") as f:
+            state = _json.load(f)
+        sys.path.insert(0, BASE_DIR)
+        from health_engine import render_dashboard
+        return render_dashboard(state, html=False)
+    except Exception as e:
+        return f"❌ 儀表板產生失敗: {_esc(str(e))}"
+
+
+# 完整指令表（含 /monitor 與 /info）
+ALL_DIRECT = {
+    "monitor":      cmd_monitor,
+    "devreport":    cmd_devreport,
+    "costreport":   cmd_costreport,
+    "gitlog":       cmd_gitlog,
+    "gitdiff":      cmd_gitdiff,
+    "gitbranch":    cmd_gitbranch,
+    "quickbackup":  cmd_quickbackup,
+    "info":         cmd_info,
+}
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2 or sys.argv[1] not in ALL_DIRECT:
+        cmds = " | ".join(ALL_DIRECT.keys())
+        print(f"用法: python3 {sys.argv[0]} <{cmds}>")
+        sys.exit(1)
+
+    print(ALL_DIRECT[sys.argv[1]]())

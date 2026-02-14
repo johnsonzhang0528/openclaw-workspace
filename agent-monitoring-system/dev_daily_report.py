@@ -171,30 +171,26 @@ def build_report() -> str:
     # Header
     sections.append(
         f"<b>📋 每日開發進度報告</b>\n"
-        f"<code>日期: {now.strftime('%Y-%m-%d (%A)')}</code>\n"
-        f"<code>生成時間: {now.strftime('%H:%M:%S')} GMT+8</code>\n"
+        f"<code>{now.strftime('%Y-%m-%d (%A)')} · {now.strftime('%H:%M')} GMT+8</code>\n"
         f"{'━' * 30}"
     )
-
-    # Gateway 狀態
-    gw = gateway_status()
-    sections.append(f"\n<b>🤖 Gateway 狀態:</b> {gw}")
 
     # Git — Workspace
     ws_branch = git_branch_info(WORKSPACE)
     ws_commits = git_today_commits(WORKSPACE)
     ws_uncommitted = git_uncommitted_count(WORKSPACE)
 
-    git_section = f"\n<b>📂 Git — Workspace</b> (分支: <code>{ws_branch}</code>)\n"
+    git_section = f"\n<b>📂 Workspace</b>  <code>{ws_branch}</code>\n"
     if ws_commits:
-        git_section += f"今日提交: <b>{len(ws_commits)}</b> 筆\n"
+        git_section += f"提交: <b>{len(ws_commits)}</b> 筆\n"
         for c in ws_commits[:5]:
             git_section += f"  <code>{c['hash']}</code> {_esc(c['msg'][:50])}\n"
         if len(ws_commits) > 5:
             git_section += f"  ...另有 {len(ws_commits) - 5} 筆\n"
     else:
-        git_section += "今日提交: <b>0</b> 筆\n"
-    git_section += f"未提交變更: <b>{ws_uncommitted}</b> 個檔案"
+        git_section += "提交: 0 筆\n"
+    if ws_uncommitted:
+        git_section += f"未提交: <b>{ws_uncommitted}</b> 個檔案"
     sections.append(git_section)
 
     # Git — Config
@@ -202,36 +198,16 @@ def build_report() -> str:
     cfg_commits = git_today_commits(CONFIG_DIR)
     cfg_uncommitted = git_uncommitted_count(CONFIG_DIR)
 
-    cfg_section = f"\n<b>⚙️ Git — Config</b> (分支: <code>{cfg_branch}</code>)\n"
+    cfg_section = f"\n<b>⚙️ Config</b>  <code>{cfg_branch}</code>\n"
     if cfg_commits:
-        cfg_section += f"今日提交: <b>{len(cfg_commits)}</b> 筆\n"
+        cfg_section += f"提交: <b>{len(cfg_commits)}</b> 筆\n"
         for c in cfg_commits[:3]:
             cfg_section += f"  <code>{c['hash']}</code> {_esc(c['msg'][:50])}\n"
     else:
-        cfg_section += "今日提交: <b>0</b> 筆\n"
-    cfg_section += f"未提交變更: <b>{cfg_uncommitted}</b> 個檔案"
+        cfg_section += "提交: 0 筆\n"
+    if cfg_uncommitted:
+        cfg_section += f"未提交: <b>{cfg_uncommitted}</b> 個檔案"
     sections.append(cfg_section)
-
-    # Session 統計
-    ss = get_session_stats()
-    session_section = (
-        f"\n<b>📊 今日 Agent 工作統計</b>\n"
-        f"  總任務: <b>{ss['today']}</b>  ✅ 完成: <b>{ss['completed']}</b>  ❌ 失敗: <b>{ss['failed']}</b>\n"
-        f"  平均耗時: <b>{ss['avg_min']}</b> 分鐘"
-    )
-    sections.append(session_section)
-
-    # 系統資源
-    snap = sys_snapshot()
-    sys_section = (
-        f"\n<b>🖥️ 系統資源概覽</b>\n"
-        f"  CPU: <code>{snap['cpu']}</code>\n"
-        f"  記憶體: <code>{snap['mem']}</code>\n"
-        f"  磁碟: <code>{snap['disk']}</code>\n"
-        f"  負載: <code>{snap['load']}</code>\n"
-        f"  運行時間: <code>{snap['uptime']}</code>"
-    )
-    sections.append(sys_section)
 
     # Footer
     sections.append(

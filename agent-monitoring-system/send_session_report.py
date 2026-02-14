@@ -6,6 +6,7 @@ Session 重置報告
 直接透過 Telegram API 發送：
   1. 每日開發日報（透過 dev_daily_report.py 的 build_report）
   2. 監控儀表板快照（HTML 模式）
+  3. 主控面板選單（含 inline 鍵盤按鈕）
 
 完全不依賴 AI — 由系統層級直接發送。
 """
@@ -43,11 +44,14 @@ class TelegramSender:
         self.base = f"https://api.telegram.org/bot{token}"
         self.chat_id = chat_id
 
-    def send(self, text: str) -> int:
-        r = requests.post(f"{self.base}/sendMessage", json={
+    def send(self, text: str, reply_markup: dict | None = None) -> int:
+        payload: dict = {
             "chat_id": self.chat_id, "text": text,
             "parse_mode": "HTML", "disable_web_page_preview": True,
-        }, timeout=20)
+        }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        r = requests.post(f"{self.base}/sendMessage", json=payload, timeout=20)
         r.raise_for_status()
         return int(r.json()["result"]["message_id"])
 
@@ -86,7 +90,7 @@ def _dedup_check() -> bool:
 # ─── 報告 1：開發日報 ──────────────────────────────────
 
 def send_dev_report(sender: TelegramSender) -> bool:
-    """呼叫 dev_daily_report 的 build_report 並發送"""
+    """呼叫 dev_daily_report 的 build_report 並發送（永遠發新訊息）"""
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from dev_daily_report import build_report, load_state, save_state, TZ_GMT8
@@ -96,31 +100,12 @@ def send_dev_report(sender: TelegramSender) -> bool:
         state = load_state()
         today = datetime.now(TZ_GMT8).strftime("%Y-%m-%d")
 
-        msg_id = state.get("message_id")
-        state_date = state.get("date")
-
-        # 同一天 → 編輯；不同天 → 新訊息
-        if state_date == today and msg_id:
-            try:
-                r = requests.post(f"{sender.base}/editMessageText", json={
-                    "chat_id": sender.chat_id, "message_id": int(msg_id),
-                    "text": report_text,
-                    "parse_mode": "HTML", "disable_web_page_preview": True,
-                }, timeout=20)
-                if not r.json().get("ok"):
-                    raise RuntimeError("edit failed")
-                print(f"✅ 開發日報已更新 (msg_id={msg_id})")
-            except Exception:
-                msg_id = sender.send(report_text)
-                state["message_id"] = msg_id
-                print(f"✅ 開發日報已發送 (msg_id={msg_id})")
-        else:
-            msg_id = sender.send(report_text)
-            state["message_id"] = msg_id
-            print(f"✅ 開發日報已發送 (msg_id={msg_id})")
-
+        # Hook 觸發（/reset）永遠發新訊息，讓使用者在當前位置看到
+        msg_id = sender.send(report_text)
+        state["message_id"] = msg_id
         state["date"] = today
         save_state(state)
+        print(f"✅ 開發日報已發送 (msg_id={msg_id})")
         return True
     except Exception as e:
         print(f"⚠️ 開發日報失敗: {e}")
@@ -128,6 +113,38 @@ def send_dev_report(sender: TelegramSender) -> bool:
 
 
 # ─── 報告 2：監控面板 ──────────────────────────────────
+
+def _sync_dashboard_message_id(msg_id: int, chat_id: str) -> None:
+    """同步 dashboard_message_id 到 tenant state 與全域 state，確保 health_engine 能 edit 新訊息。"""
+    # 1. Tenant state
+    tenant_dir = f"/root/.openclaw/monitoring/tenants/telegram_{chat_id}"
+    tenant_sf = os.path.join(tenant_dir, "state.json")
+    if os.path.exists(tenant_sf):
+        try:
+            with open(tenant_sf, "r", encoding="utf-8") as f:
+                ts = json.load(f)
+            ts["dashboard_message_id"] = msg_id
+            tmp = tenant_sf + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(ts, f, indent=2, ensure_ascii=False)
+            os.replace(tmp, tenant_sf)
+        except Exception as e:
+            print(f"⚠️ 同步 tenant state 失敗: {e}")
+
+    # 2. 全域 unified state
+    unified_sf = "/root/.openclaw/monitoring/unified_dashboard_state.json"
+    if os.path.exists(unified_sf):
+        try:
+            with open(unified_sf, "r", encoding="utf-8") as f:
+                us = json.load(f)
+            us["dashboard_message_id"] = msg_id
+            tmp = unified_sf + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(us, f, indent=2, ensure_ascii=False)
+            os.replace(tmp, unified_sf)
+        except Exception as e:
+            print(f"⚠️ 同步 unified state 失敗: {e}")
+
 
 def send_monitor_dashboard(sender: TelegramSender) -> bool:
     """讀取 monitoring_state.json 並發送 HTML 格式儀表板"""
@@ -144,6 +161,10 @@ def send_monitor_dashboard(sender: TelegramSender) -> bool:
 
         dashboard_text = render_dashboard(state, html=True)
         msg_id = sender.send(dashboard_text)
+
+        # 同步 dashboard_message_id → health_engine 後續 edit 會追蹤這條新訊息
+        _sync_dashboard_message_id(msg_id, sender.chat_id)
+
         # 自動釘選監控面板
         if sender.pin(msg_id):
             print(f"✅ 監控面板已發送並釘選 (msg_id={msg_id})")
@@ -152,6 +173,24 @@ def send_monitor_dashboard(sender: TelegramSender) -> bool:
         return True
     except Exception as e:
         print(f"⚠️ 監控面板失敗: {e}")
+        return False
+
+
+# ─── 報告 3：主控面板選單 ──────────────────────────────
+
+def send_menu(sender: TelegramSender) -> bool:
+    """發送主控面板（含 inline 鍵盤）"""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from telegram_ui import page_home, kb_main_menu
+
+        text = page_home(compact=True)
+        keyboard = {"inline_keyboard": kb_main_menu()}
+        msg_id = sender.send(text, reply_markup=keyboard)
+        print(f"✅ 主控面板選單已發送 (msg_id={msg_id})")
+        return True
+    except Exception as e:
+        print(f"⚠️ 主控面板選單失敗: {e}")
         return False
 
 
@@ -187,7 +226,8 @@ def main() -> int:
         sender = TelegramSender(token, cid)
         r1 = send_dev_report(sender)
         r2 = send_monitor_dashboard(sender)
-        if r1 or r2:
+        r3 = send_menu(sender)
+        if r1 or r2 or r3:
             success += 1
 
     return 0 if success > 0 else 1
