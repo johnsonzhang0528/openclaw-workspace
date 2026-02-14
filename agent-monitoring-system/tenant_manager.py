@@ -293,7 +293,7 @@ class TenantManager:
     ]
 
     # 新租戶 workspace 需要建立的子目錄
-    WORKSPACE_INIT_DIRS = ["memory", "issues", "leo-projects"]
+    WORKSPACE_INIT_DIRS = ["memory", "issues"]
 
     # 新租戶 workspace 需要建立的初始檔案（路徑 → 預設內容）
     WORKSPACE_INIT_FILES = {
