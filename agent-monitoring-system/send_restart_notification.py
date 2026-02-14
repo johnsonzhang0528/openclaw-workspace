@@ -70,13 +70,109 @@ class TelegramSender:
         self.base = f"https://api.telegram.org/bot{token}"
         self.chat_id = chat_id
 
-    def send(self, text: str) -> int:
-        r = requests.post(f"{self.base}/sendMessage", json={
+    def send(self, text: str, keyboard: list = None, pin: bool = False) -> int:
+        payload = {
             "chat_id": self.chat_id, "text": text,
             "parse_mode": "HTML", "disable_web_page_preview": True,
-        }, timeout=20)
-        r.raise_for_status()
-        return int(r.json()["result"]["message_id"])
+        }
+        if keyboard:
+            payload["reply_markup"] = json.dumps({"inline_keyboard": keyboard})
+        try:
+            r = requests.post(f"{self.base}/sendMessage", json=payload, timeout=20)
+            r.raise_for_status()
+            msg_id = int(r.json()["result"]["message_id"])
+            if pin:
+                self._pin(msg_id)
+            return msg_id
+        except Exception as exc:
+            print(f"⚠️ Telegram send failed: {exc}")
+            return 0
+
+    def _pin(self, message_id: int):
+        try:
+            requests.post(
+                f"{self.base}/pinChatMessage",
+                json={"chat_id": self.chat_id, "message_id": message_id,
+                      "disable_notification": True},
+                timeout=10,
+            )
+        except Exception:
+            pass
+
+
+# ─── Post-reset 自動推送 ────────────────────────────────
+
+def _send_owner_post_reset(sender: TelegramSender, tm, tenant):
+    """
+    Owner 專屬 post-reset 推送（按順序）：
+      1. 監控儀表板（pinned）
+      2. 開發日報
+      3. 費用日報
+      4. 主控面板
+    """
+    state = tm.load_tenant_state(tenant)
+
+    # 1. 監控儀表板（pinned）
+    try:
+        from health_engine import render_dashboard
+        dashboard_text = render_dashboard(state)
+        msg_id = sender.send(dashboard_text, pin=True)
+        if msg_id:
+            state["dashboard_message_id"] = msg_id
+            tm.save_tenant_state(tenant, state)
+            print(f"📊 儀表板已推送並釘選 (msg_id={msg_id})")
+    except Exception as e:
+        print(f"⚠️ 儀表板推送失敗: {e}")
+
+    # 2. 開發日報
+    try:
+        from dev_daily_report import build_report
+        report = build_report()
+        if report:
+            sender.send(report)
+            print("📋 開發日報已推送")
+    except Exception as e:
+        print(f"⚠️ 開發日報推送失敗: {e}")
+
+    # 3. 費用日報
+    try:
+        from usage_cost_report import get_openclaw_usage, calculate_cost, build_usage_report
+        usage = get_openclaw_usage()
+        cost = calculate_cost(usage)
+        history = []  # post-reset 不帶歷史
+        report = build_usage_report(usage, cost, history)
+        if report:
+            sender.send(report)
+            print("💰 費用日報已推送")
+    except Exception as e:
+        print(f"⚠️ 費用日報推送失敗: {e}")
+
+    # 4. 主控面板
+    _send_menu(sender, state)
+
+
+def _send_tenant_post_reset(sender: TelegramSender, tm, tenant):
+    """
+    一般租戶 post-reset 推送：
+      1. 主控面板（pinned）
+    """
+    state = tm.load_tenant_state(tenant)
+    _send_menu(sender, state, pin=True)
+
+
+def _send_menu(sender: TelegramSender, state: dict, pin: bool = False):
+    """推送主控面板（含 inline keyboard）"""
+    try:
+        from telegram_ui import page_home, kb_main_menu
+        score = state.get("health_score", 0)
+        grade = state.get("health_grade", "?")
+        ts = state.get("last_updated", "")
+        msg_id = sender.send(page_home(score, grade, ts), keyboard=kb_main_menu(), pin=pin)
+        if msg_id:
+            action = "釘選" if pin else ""
+            print(f"📱 主控面板已推送{action} (msg_id={msg_id})")
+    except Exception as e:
+        print(f"⚠️ 主控面板推送失敗: {e}")
 
 
 def main() -> int:
@@ -110,29 +206,62 @@ def main() -> int:
         print(f"⏸️ 此次重啟已通知過，跳過")
         return 0
     
-    # ── 多租戶：通知所有啟用的租戶 ──
-    chat_ids = []
+    # ── 多租戶：通知所有啟用的租戶（區分 owner 與一般用戶）──
+    tm = None
+    rbac_mod = None
+    tenants = []
+    owner_chat_id = None
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from tenant_manager import TenantManager
         tm = TenantManager()
-        for tenant in tm.get_active_tenants():
-            if tenant.get_setting("alerts_enabled", True):
-                chat_ids.append(tenant.chat_id)
-    except Exception:
-        pass
+        tenants = [t for t in tm.get_active_tenants() if t.get_setting("alerts_enabled", True)]
+
+        # 取得 owner chat_id（RBAC 中角色為 owner 的用戶）
+        try:
+            from rbac import RBACManager
+            rbac_mod = RBACManager()
+            for t in tenants:
+                tid = t.tenant_id
+                roles = rbac_mod._roles.get(tid, {})
+                for uid, role in roles.items():
+                    if role == "owner":
+                        owner_chat_id = t.chat_id
+                        break
+                if owner_chat_id:
+                    break
+        except Exception:
+            pass
+
+        # 回退：找不到 owner 時，第一個租戶視為 owner
+        if not owner_chat_id and tenants:
+            owner_chat_id = tenants[0].chat_id
+
+    except Exception as e:
+        print(f"⚠️ 載入租戶失敗: {e}")
 
     # 回退：無租戶時用 .env
-    if not chat_ids:
+    if not tenants:
         chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-        if chat_id:
-            chat_ids.append(chat_id)
-        else:
+        if not chat_id:
             print("❌ 無可通知的租戶")
             return 1
+        # 單租戶模式 — 視為 owner
+        now_gmt8 = datetime.now(TZ_GMT8)
+        s = TelegramSender(token, chat_id)
+        s.send(
+            f"✅ <b>Gateway 重啟完成</b>\n"
+            f"{'━' * 25}\n"
+            f"狀態: 🟢 運行中\n"
+            f"完成時間: {now_gmt8.strftime('%Y-%m-%d %H:%M:%S')} GMT+8\n"
+            f"啟動耗時: 約 {uptime:.1f} 秒"
+        )
+        state["last_restart_time"] = start_time_str
+        save_state(state)
+        return 0
 
     now_gmt8 = datetime.now(TZ_GMT8)
-    text = (
+    restart_text = (
         f"✅ <b>Gateway 重啟完成</b>\n"
         f"{'━' * 25}\n"
         f"狀態: 🟢 運行中\n"
@@ -141,14 +270,22 @@ def main() -> int:
     )
 
     sent_count = 0
-    for cid in chat_ids:
+    for tenant in tenants:
         try:
-            sender = TelegramSender(token, cid)
-            msg_id = sender.send(text)
-            print(f"✅ 已發送重啟通知至 {cid} (msg_id={msg_id})")
+            sender = TelegramSender(token, tenant.chat_id)
+            # 先發重啟通知
+            sender.send(restart_text)
             sent_count += 1
+
+            # Post-reset 自動推送（依角色區分）
+            if tenant.chat_id == owner_chat_id:
+                _send_owner_post_reset(sender, tm, tenant)
+            else:
+                _send_tenant_post_reset(sender, tm, tenant)
+
+            print(f"✅ 已完成 post-reset 推送至 {tenant.chat_id}")
         except Exception as e:
-            print(f"⚠️ 發送至 {cid} 失敗: {e}")
+            print(f"⚠️ 推送至 {tenant.chat_id} 失敗: {e}")
 
     if sent_count > 0:
         state["last_restart_time"] = start_time_str
