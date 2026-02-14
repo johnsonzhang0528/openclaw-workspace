@@ -286,6 +286,23 @@ class TenantManager:
 
     # ─── CRUD ────────────────────────────────────────────
 
+    # 新租戶 workspace 需要的 bootstrap 模板文件（從共享 workspace 複製）
+    WORKSPACE_TEMPLATE_FILES = [
+        "AGENTS.md", "BOOT.md", "BOOTSTRAP.md", "HEARTBEAT.md",
+        "IDENTITY.md", "MEMORY.md", "SOUL.md", "TOOLS.md", "USER.md",
+    ]
+
+    # 新租戶 workspace 需要建立的子目錄
+    WORKSPACE_INIT_DIRS = ["memory", "issues", "leo-projects"]
+
+    # 新租戶 workspace 需要建立的初始檔案（路徑 → 預設內容）
+    WORKSPACE_INIT_FILES = {
+        "todolist.md": "# TodoList\n\n## 待處理\n\n## 已處理\n",
+        "user-docs.md": "",
+        "issues_index.json": '{"issues": []}',
+        "development-progress.json": '{"projects": []}',
+    }
+
     def register(self, chat_id: str, name: str = "", chat_type: str = "private",
                  settings: dict = None) -> Tenant:
         """註冊新租戶（含 workspace 自動佈建）"""
@@ -304,9 +321,49 @@ class TenantManager:
         )
         os.makedirs(tenant.state_dir(), exist_ok=True)
         os.makedirs(tenant.workspace_dir(), exist_ok=True)
+
+        # Bootstrap workspace: 建立目錄、模板文件、初始檔案
+        self._bootstrap_workspace(tenant)
+
         self._tenants[tenant_id] = tenant
         self._save_registry()
         return tenant
+
+    def _bootstrap_workspace(self, tenant: "Tenant"):
+        """
+        為新租戶 workspace 建立完整的初始結構：
+          1. 子目錄（memory/, issues/, leo-projects/）
+          2. 模板文件（AGENTS.md, SOUL.md 等，從共享 workspace 複製）
+          3. 初始資料檔（todolist.md, issues_index.json 等）
+        跳過已存在的檔案，避免覆蓋既有租戶資料。
+        """
+        ws = tenant.workspace_dir()
+        shared_ws = os.path.join(OPENCLAW_ROOT, "workspace")
+
+        # 1. 子目錄
+        for d in self.WORKSPACE_INIT_DIRS:
+            os.makedirs(os.path.join(ws, d), exist_ok=True)
+
+        # 2. 複製模板文件
+        import shutil
+        for fname in self.WORKSPACE_TEMPLATE_FILES:
+            src = os.path.join(shared_ws, fname)
+            dst = os.path.join(ws, fname)
+            if not os.path.exists(dst) and os.path.isfile(src):
+                try:
+                    shutil.copy2(src, dst)
+                except Exception as e:
+                    print(f"⚠️ 無法複製模板 {fname}: {e}")
+
+        # 3. 初始資料檔
+        for fname, content in self.WORKSPACE_INIT_FILES.items():
+            dst = os.path.join(ws, fname)
+            if not os.path.exists(dst):
+                try:
+                    with open(dst, "w", encoding="utf-8") as f:
+                        f.write(content)
+                except Exception as e:
+                    print(f"⚠️ 無法建立初始檔案 {fname}: {e}")
 
     def ensure_workspace(self, tenant: Tenant) -> str:
         """確保租戶 workspace 目錄存在，回傳路徑"""

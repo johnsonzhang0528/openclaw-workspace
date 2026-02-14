@@ -100,7 +100,6 @@ BACKUP_EXCLUDE_PATTERNS = [
     "canvas/",
     "skills/marketplace/cache/",
     "devices/",
-    "workspace/memory/",
     # Tenant project repos are pushed to remote; exclude to keep backups small.
     "leo-projects/",
 ]

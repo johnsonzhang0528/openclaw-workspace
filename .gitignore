@@ -101,6 +101,17 @@ skills-marketplace/data/
 skills-marketplace/config.json
 
 # ============================================
+# Tenant-private symlinks (各租戶獨立資料)
+# 這些是指向 workspaces/{tenant}/ 的相容性 symlink，
+# 不應被 git 追蹤，避免硬綁定到單一租戶。
+# ============================================
+memory
+issues
+leo-projects
+todolist.md
+user-docs.md
+
+# ============================================
 # Node.js
 # ============================================
 node_modules/
