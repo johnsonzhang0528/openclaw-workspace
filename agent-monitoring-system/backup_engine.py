@@ -101,6 +101,8 @@ BACKUP_EXCLUDE_PATTERNS = [
     "skills/marketplace/cache/",
     "devices/",
     "workspace/memory/",
+    # Tenant project repos are pushed to remote; exclude to keep backups small.
+    "leo-projects/",
 ]
 
 # ─── 資料類別 ──────────────────────────────────────────────
