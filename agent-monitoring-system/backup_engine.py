@@ -79,9 +79,10 @@ BACKUP_INCLUDE = [
     "subagents/",
     # SQLite 資料庫（小）
     "workspace/agent-monitoring-system/monitoring.db",
-    # TodoList
-    "workspace/todolist.md",
+    # TodoList (now symlink → workspaces/ 涵蓋)
     "workspace/SOUL.md",
+    # 租戶隔離 workspaces
+    "workspaces/",
 ]
 
 # 絕對排除清單（glob 模式）

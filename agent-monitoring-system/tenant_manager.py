@@ -16,6 +16,10 @@
     ├── audit.log             ← 操作審計
     ├── config.json           ← 租戶個別設定（覆蓋預設）
     └── error_events.jsonl    ← 錯誤紀錄
+
+Workspace 隔離：
+  /root/.openclaw/workspaces/{tenant_id}/
+    └── (OpenClaw agent 工作區，依 chat_id 隔離)
 """
 
 import json
@@ -30,6 +34,8 @@ BASE_DIR = "/root/.openclaw/monitoring"
 TENANTS_DIR = os.path.join(BASE_DIR, "tenants")
 TENANTS_REGISTRY = os.path.join(BASE_DIR, "tenants.json")
 RBAC_FILE = os.path.join(BASE_DIR, "rbac.json")
+WORKSPACES_DIR = "/root/.openclaw/workspaces"
+OPENCLAW_CONFIG = "/root/.openclaw/openclaw.json"
 
 # 預設租戶設定（可被個別租戶覆蓋）
 DEFAULT_TENANT_SETTINGS = {
@@ -73,6 +79,7 @@ class Tenant:
     enabled: bool = True                     # 是否啟用
     created_at: str = ""                     # ISO 8601
     settings: Dict[str, Any] = field(default_factory=dict)
+    workspace: str = ""                      # 隔離 workspace 路徑
     # 執行期狀態（不持久化到 tenants.json）
     dashboard_message_id: Optional[int] = None
 
@@ -123,6 +130,13 @@ class Tenant:
     def config_file(self) -> str:
         return os.path.join(self.state_dir(), "config.json")
 
+    def workspace_dir(self) -> str:
+        """取得租戶的隔離 workspace 路徑"""
+        if self.workspace:
+            return self.workspace
+        # 預設根據 tenant_id 生成
+        return os.path.join(WORKSPACES_DIR, self.tenant_id.replace(":", "_"))
+
     def to_dict(self) -> dict:
         """序列化（排除執行期狀態）"""
         return {
@@ -133,6 +147,7 @@ class Tenant:
             "enabled": self.enabled,
             "created_at": self.created_at,
             "settings": self.settings,
+            "workspace": self.workspace,
         }
 
 
@@ -209,12 +224,14 @@ class TenantManager:
         if not chat_id:
             return
 
+        ws_dir = os.path.join(WORKSPACES_DIR, f"telegram_{chat_id}")
         tenant = Tenant(
             tenant_id=Tenant.make_id(chat_id),
             chat_id=chat_id,
             name="Admin (Primary)",
             chat_type="private",
             enabled=True,
+            workspace=ws_dir,
         )
         self._tenants[tenant.tenant_id] = tenant
 
@@ -270,22 +287,35 @@ class TenantManager:
 
     def register(self, chat_id: str, name: str = "", chat_type: str = "private",
                  settings: dict = None) -> Tenant:
-        """註冊新租戶"""
+        """註冊新租戶（含 workspace 自動佈建）"""
         tenant_id = Tenant.make_id(chat_id)
         if tenant_id in self._tenants:
             return self._tenants[tenant_id]
 
+        ws_dir = os.path.join(WORKSPACES_DIR, tenant_id.replace(":", "_"))
         tenant = Tenant(
             tenant_id=tenant_id,
             chat_id=chat_id,
             name=name or f"Chat {chat_id}",
             chat_type=chat_type,
             settings=settings or {},
+            workspace=ws_dir,
         )
         os.makedirs(tenant.state_dir(), exist_ok=True)
+        os.makedirs(tenant.workspace_dir(), exist_ok=True)
         self._tenants[tenant_id] = tenant
         self._save_registry()
         return tenant
+
+    def ensure_workspace(self, tenant: Tenant) -> str:
+        """確保租戶 workspace 目錄存在，回傳路徑"""
+        ws = tenant.workspace_dir()
+        os.makedirs(ws, exist_ok=True)
+        return ws
+
+    def get_all_workspace_dirs(self) -> List[str]:
+        """取得所有啟用租戶的 workspace 路徑（供備份用）"""
+        return [t.workspace_dir() for t in self.get_active_tenants()]
 
     def unregister(self, chat_id: str) -> bool:
         """停用租戶（不刪除資料）"""
