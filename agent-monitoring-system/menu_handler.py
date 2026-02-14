@@ -198,6 +198,13 @@ def handle_command(sender, message: dict, rbac, tm, state: dict):
             _fill_skeleton(sender, msg_id, f"❌ 執行失敗: {_esc(str(e))}", keyboard=kb_back())
         print(f"⚡ {cmd} 直接執行完成 (user: {from_id})")
 
+    elif cmd == "/tenant":
+        perm = rbac.check_permission(from_id, tenant_id, "manage_tenants")
+        if not perm.allowed:
+            sender.send(f"⛔ 權限不足: {_esc(str(perm.reason))}")
+            return
+        _handle_tenant_command(sender, text, from_id, tenant_id, tm, rbac)
+
     # 其他未知指令 → 不回應（避免干擾 OpenClaw 本身的指令）
 
 
@@ -551,3 +558,290 @@ def _do_verify(sender, msg_id):
 
     if msg_id:
         sender.edit(msg_id, text, keyboard=kb_back())
+
+
+# ─── /tenant 指令 ────────────────────────────────────────
+
+def _handle_tenant_command(sender, text: str, from_id: str, tenant_id: str, tm, rbac):
+    """
+    處理 /tenant 指令族。
+
+    用法：
+      /tenant list             — 列出所有租戶
+      /tenant add <chat_id> [名稱]  — 新增租戶（自動配置 openclaw.json + 重啟 gateway）
+      /tenant remove <chat_id> — 停用租戶（從 openclaw.json 移除，不刪資料）
+      /tenant info <chat_id>   — 查看租戶詳情
+      /tenant restore <chat_id> [backup_id] — 還原租戶備份
+    """
+    parts = text.split(maxsplit=3)
+    sub = parts[1].lower() if len(parts) > 1 else ""
+
+    if sub == "list":
+        _tenant_list(sender, tm)
+
+    elif sub == "add":
+        if len(parts) < 3:
+            sender.send("⚠️ 用法：<code>/tenant add &lt;chat_id&gt; [名稱]</code>")
+            return
+        chat_id = parts[2].strip()
+        name = parts[3].strip() if len(parts) > 3 else ""
+        _tenant_add(sender, tm, rbac, chat_id, name, from_id, tenant_id)
+
+    elif sub == "remove" or sub == "rm":
+        if len(parts) < 3:
+            sender.send("⚠️ 用法：<code>/tenant remove &lt;chat_id&gt;</code>")
+            return
+        chat_id = parts[2].strip()
+        _tenant_remove(sender, tm, chat_id, from_id, tenant_id)
+
+    elif sub == "info":
+        if len(parts) < 3:
+            sender.send("⚠️ 用法：<code>/tenant info &lt;chat_id&gt;</code>")
+            return
+        chat_id = parts[2].strip()
+        _tenant_info(sender, tm, chat_id)
+
+    elif sub == "restore":
+        if len(parts) < 3:
+            sender.send("⚠️ 用法：<code>/tenant restore &lt;chat_id&gt; [backup_id]</code>")
+            return
+        chat_id = parts[2].strip()
+        backup_id = parts[3].strip() if len(parts) > 3 else None
+        _tenant_restore(sender, tm, chat_id, backup_id)
+
+    else:
+        sender.send(
+            "<b>🏠 租戶管理</b>\n"
+            f"{'━' * 25}\n"
+            "<code>/tenant list</code>  — 列出所有租戶\n"
+            "<code>/tenant add &lt;id&gt; [名稱]</code>  — 新增\n"
+            "<code>/tenant remove &lt;id&gt;</code>  — 停用\n"
+            "<code>/tenant info &lt;id&gt;</code>  — 詳情\n"
+            "<code>/tenant restore &lt;id&gt; [備份]</code>  — 還原"
+        )
+
+
+def _tenant_list(sender, tm):
+    """列出所有租戶"""
+    tenants = tm.get_all_tenants()
+    if not tenants:
+        sender.send("📭 目前無註冊租戶")
+        return
+
+    lines = [f"<b>🏠 租戶列表</b> ({len(tenants)} 個)", f"{'━' * 25}"]
+    for t in tenants:
+        status = "🟢" if t.enabled else "🔴"
+        ws = t.workspace_dir()
+        ws_exists = "✅" if os.path.isdir(ws) else "❌"
+        lines.append(
+            f"{status} <code>{t.chat_id}</code> {_esc(t.name)}\n"
+            f"    ID: {_esc(t.tenant_id)}\n"
+            f"    Workspace: {ws_exists} <code>{_esc(ws)}</code>"
+        )
+    sender.send("\n".join(lines))
+
+
+def _tenant_add(sender, tm, rbac, chat_id: str, name: str, from_id: str, current_tenant_id: str):
+    """新增租戶：register + provision config + restart gateway"""
+    # 驗證 chat_id 格式
+    if not chat_id.lstrip("-").isdigit():
+        sender.send(f"❌ 無效的 chat_id: <code>{_esc(chat_id)}</code>")
+        return
+
+    # 檢查是否已存在
+    existing = tm.get(chat_id)
+    if existing and existing.enabled:
+        sender.send(f"⚠️ 租戶 <code>{_esc(chat_id)}</code> 已存在且啟用中")
+        return
+
+    sender.send(f"⏳ 正在新增租戶 <code>{_esc(chat_id)}</code>...")
+
+    try:
+        # 1. 註冊租戶
+        tenant = tm.register(chat_id, name=name or f"Tenant {chat_id}")
+        step1 = f"✅ 租戶已註冊: {_esc(tenant.tenant_id)}"
+
+        # 2. 配置 openclaw.json
+        config_result = tm.provision_tenant_in_config(tenant)
+        step2 = f"📝 Config: {_esc(config_result)}"
+
+        # 3. 設定 RBAC（新租戶的 chat_id 自動成為 owner）
+        try:
+            rbac.assign_role(chat_id, "owner", tenant.tenant_id,
+                             assigned_by=from_id, username=f"tenant_{chat_id}")
+            step3 = f"✅ RBAC: {chat_id} = owner @ {tenant.tenant_id}"
+        except Exception as e:
+            step3 = f"⚠️ RBAC: {e}"
+
+        # 4. 重啟 Gateway
+        step4 = _restart_gateway_silent()
+
+        # 5. 審計
+        try:
+            from audit import audit_log
+            audit_log(current_tenant_id, "tenant_add", from_id, "",
+                      f"新增租戶: {tenant.tenant_id} (chat_id={chat_id}, name={name})")
+        except Exception:
+            pass
+
+        sender.send(
+            f"<b>🏠 新增租戶完成</b>\n"
+            f"{'━' * 25}\n"
+            f"{step1}\n{step2}\n{step3}\n{step4}\n\n"
+            f"<b>Workspace:</b> <code>{_esc(tenant.workspace_dir())}</code>\n"
+            f"<b>Agent ID:</b> <code>tenant-{_esc(chat_id)}</code>"
+        )
+        print(f"🏠 /tenant add {chat_id} by {from_id}: success")
+
+    except Exception as e:
+        sender.send(f"❌ 新增租戶失敗:\n<code>{_esc(str(e))}</code>")
+        print(f"🏠 /tenant add {chat_id} by {from_id}: FAILED - {e}")
+
+
+def _tenant_remove(sender, tm, chat_id: str, from_id: str, current_tenant_id: str):
+    """停用租戶：unregister + deprovision config + restart gateway"""
+    tenant = tm.get(chat_id)
+    if not tenant:
+        sender.send(f"❌ 找不到租戶: <code>{_esc(chat_id)}</code>")
+        return
+
+    # 防止移除自己
+    if chat_id == current_tenant_id.split(":")[-1]:
+        sender.send("⛔ 無法移除自己的租戶")
+        return
+
+    sender.send(f"⏳ 正在停用租戶 <code>{_esc(chat_id)}</code>...")
+
+    try:
+        # 1. 停用租戶（不刪除資料）
+        tm.unregister(chat_id)
+        step1 = f"✅ 租戶已停用: {_esc(tenant.tenant_id)}"
+
+        # 2. 從 openclaw.json 移除
+        config_result = tm.deprovision_tenant_in_config(tenant)
+        step2 = f"📝 Config: {_esc(config_result)}"
+
+        # 3. 重啟 Gateway
+        step3 = _restart_gateway_silent()
+
+        # 4. 審計
+        try:
+            from audit import audit_log
+            audit_log(current_tenant_id, "tenant_remove", from_id, "",
+                      f"停用租戶: {tenant.tenant_id} (workspace 資料保留)")
+        except Exception:
+            pass
+
+        sender.send(
+            f"<b>🏠 停用租戶完成</b>\n"
+            f"{'━' * 25}\n"
+            f"{step1}\n{step2}\n{step3}\n\n"
+            f"⚠️ Workspace 資料已保留於:\n"
+            f"<code>{_esc(tenant.workspace_dir())}</code>"
+        )
+        print(f"🏠 /tenant remove {chat_id} by {from_id}: success")
+
+    except Exception as e:
+        sender.send(f"❌ 停用租戶失敗:\n<code>{_esc(str(e))}</code>")
+
+
+def _tenant_info(sender, tm, chat_id: str):
+    """查看租戶詳情"""
+    tenant = tm.get(chat_id)
+    if not tenant:
+        sender.send(f"❌ 找不到租戶: <code>{_esc(chat_id)}</code>")
+        return
+
+    ws = tenant.workspace_dir()
+    ws_exists = os.path.isdir(ws)
+    ws_size = 0
+    ws_files = 0
+    if ws_exists:
+        for root, dirs, files in os.walk(ws):
+            ws_files += len(files)
+            for f in files:
+                try:
+                    ws_size += os.path.getsize(os.path.join(root, f))
+                except OSError:
+                    pass
+
+    state_dir = tenant.state_dir()
+    state_exists = os.path.isdir(state_dir)
+
+    sender.send(
+        f"<b>🏠 租戶詳情</b>\n"
+        f"{'━' * 25}\n"
+        f"<b>Tenant ID:</b> <code>{_esc(tenant.tenant_id)}</code>\n"
+        f"<b>Chat ID:</b> <code>{_esc(tenant.chat_id)}</code>\n"
+        f"<b>名稱:</b> {_esc(tenant.name)}\n"
+        f"<b>類型:</b> {_esc(tenant.chat_type)}\n"
+        f"<b>狀態:</b> {'🟢 啟用' if tenant.enabled else '🔴 停用'}\n"
+        f"<b>建立:</b> {_esc(tenant.created_at[:19])}\n\n"
+        f"<b>📁 Workspace</b>\n"
+        f"  路徑: <code>{_esc(ws)}</code>\n"
+        f"  存在: {'✅' if ws_exists else '❌'}\n"
+        f"  檔案: {ws_files} 個, {ws_size / 1024:.0f} KB\n\n"
+        f"<b>📊 Monitoring</b>\n"
+        f"  路徑: <code>{_esc(state_dir)}</code>\n"
+        f"  存在: {'✅' if state_exists else '❌'}"
+    )
+
+
+def _tenant_restore(sender, tm, chat_id: str, backup_id: str = None):
+    """還原租戶備份"""
+    tenant = tm.get(chat_id)
+    if not tenant:
+        sender.send(f"❌ 找不到租戶: <code>{_esc(chat_id)}</code>")
+        return
+
+    sender.send(f"⏳ 正在還原租戶 <code>{_esc(chat_id)}</code> 的備份...")
+
+    try:
+        from backup_engine import BackupEngine
+        engine = BackupEngine()
+
+        # 先列出可還原的檔案
+        files = engine.list_tenant_files_in_backup(tenant.tenant_id, backup_id)
+        if not files:
+            bid = backup_id or "最新"
+            sender.send(f"❌ 備份 ({bid}) 中無租戶 <code>{_esc(tenant.tenant_id)}</code> 的資料")
+            return
+
+        result = engine.restore_tenant(tenant.tenant_id, backup_id)
+
+        if result.status == "success":
+            text = (
+                f"✅ <b>租戶還原完成</b>\n\n"
+                f"租戶: <code>{_esc(tenant.tenant_id)}</code>\n"
+                f"備份: <code>{_esc(result.backup_id)}</code>\n"
+                f"還原: {result.files_restored} 檔\n"
+                f"耗時: {result.duration_ms}ms"
+            )
+        else:
+            text = (
+                f"{'⚠️' if result.status == 'partial' else '❌'} "
+                f"<b>租戶還原{'部分完成' if result.status == 'partial' else '失敗'}</b>\n\n"
+                f"還原: {result.files_restored} | 失敗: {result.files_failed}\n"
+                f"{'錯誤: ' + _esc(result.error) if result.error else ''}"
+            )
+        sender.send(text)
+
+    except Exception as e:
+        sender.send(f"❌ 還原失敗:\n<code>{_esc(str(e))}</code>")
+
+
+def _restart_gateway_silent() -> str:
+    """靜默重啟 Gateway，回傳狀態文字"""
+    try:
+        env = os.environ.copy()
+        env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
+        env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path=/run/user/{os.getuid()}/bus"
+        r = subprocess.run(
+            ["systemctl", "--user", "restart", "openclaw-gateway"],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+        if r.returncode == 0:
+            return "🔄 Gateway 已重啟"
+        return f"⚠️ Gateway 重啟失敗: {r.stderr.strip()[:100]}"
+    except Exception as e:
+        return f"⚠️ Gateway 重啟錯誤: {str(e)[:100]}"

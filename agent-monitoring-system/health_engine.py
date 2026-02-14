@@ -79,11 +79,13 @@ ALERT_COOLDOWN = {
 }
 
 # 閾值
+# 註：cpu_percent 讀自 /proc/stat，為所有核心的聚合百分比 (0-100%)。
+# 4 vCPU 主機上 100% = 全部 4 核滿載，80% = 3.2 核滿載。
 THRESHOLDS = {
-    "cpu_percent": 80.0,
+    "cpu_percent": 80.0,       # 80% of total 4-vCPU capacity
     "memory_percent": 85.0,
     "disk_percent": 90.0,
-    "load_avg_1m": 6.0,
+    "load_avg_1m": 8.0,        # 4 vCPU: healthy load ≤ 2*cores = 8.0
 }
 
 

@@ -36,6 +36,7 @@ TENANTS_REGISTRY = os.path.join(BASE_DIR, "tenants.json")
 RBAC_FILE = os.path.join(BASE_DIR, "rbac.json")
 WORKSPACES_DIR = "/root/.openclaw/workspaces"
 OPENCLAW_CONFIG = "/root/.openclaw/openclaw.json"
+OPENCLAW_ROOT = "/root/.openclaw"
 
 # 預設租戶設定（可被個別租戶覆蓋）
 DEFAULT_TENANT_SETTINGS = {
@@ -57,7 +58,7 @@ DEFAULT_TENANT_SETTINGS = {
         "cpu_percent": 80.0,
         "memory_percent": 85.0,
         "disk_percent": 90.0,
-        "load_avg_1m": 6.0,
+        "load_avg_1m": 8.0,
     },
     "features": {
         "self_heal": True,
@@ -424,6 +425,133 @@ class TenantManager:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         os.replace(tmp, global_state)
+
+    # ─── OpenClaw 配置管理 ────────────────────────────────
+
+    def provision_tenant_in_config(self, tenant: "Tenant") -> str:
+        """
+        在 openclaw.json 中新增租戶的 agent entry、binding、allowFrom。
+        回傳操作摘要文字。
+
+        修改項目：
+          - agents.list: 新增 {id, name, workspace}
+          - bindings:    新增 {agentId, match: {channel, peer}}
+          - channels.telegram.allowFrom: 加入 chat_id (int)
+        """
+        import copy
+        if not os.path.exists(OPENCLAW_CONFIG):
+            return "❌ openclaw.json 不存在"
+
+        with open(OPENCLAW_CONFIG, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+
+        # 備份
+        backup_path = OPENCLAW_CONFIG + ".bak"
+        with open(backup_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+        agent_id = f"tenant-{tenant.chat_id}"
+        ws_dir = tenant.workspace_dir()
+        chat_id_int = int(tenant.chat_id)
+        changes = []
+
+        # 1. agents.list
+        agents = cfg.setdefault("agents", {})
+        agent_list = agents.setdefault("list", [])
+        existing_ids = {a.get("id", "") for a in agent_list}
+        if agent_id not in existing_ids:
+            agent_list.append({
+                "id": agent_id,
+                "name": tenant.name or f"Tenant {tenant.chat_id}",
+                "workspace": ws_dir,
+            })
+            changes.append(f"agents.list += {agent_id}")
+
+        # 2. bindings
+        bindings = cfg.setdefault("bindings", [])
+        has_binding = any(
+            b.get("agentId") == agent_id
+            for b in bindings
+        )
+        if not has_binding:
+            bindings.append({
+                "agentId": agent_id,
+                "match": {
+                    "channel": "telegram",
+                    "peer": {
+                        "kind": "direct",
+                        "id": str(tenant.chat_id),
+                    }
+                }
+            })
+            changes.append(f"bindings += peer:{tenant.chat_id}")
+
+        # 3. allowFrom
+        allow_from = cfg.get("channels", {}).get("telegram", {}).get("allowFrom", [])
+        if chat_id_int not in allow_from:
+            cfg.setdefault("channels", {}).setdefault("telegram", {}).setdefault("allowFrom", [])
+            cfg["channels"]["telegram"]["allowFrom"].append(chat_id_int)
+            changes.append(f"allowFrom += {chat_id_int}")
+
+        if not changes:
+            return "⚠️ 該租戶已在 openclaw.json 中"
+
+        # 寫入
+        tmp = OPENCLAW_CONFIG + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, OPENCLAW_CONFIG)
+
+        return "✅ " + ", ".join(changes)
+
+    def deprovision_tenant_in_config(self, tenant: "Tenant") -> str:
+        """
+        從 openclaw.json 移除租戶的 agent entry、binding、allowFrom。
+        不刪除 workspace 資料。回傳操作摘要文字。
+        """
+        if not os.path.exists(OPENCLAW_CONFIG):
+            return "❌ openclaw.json 不存在"
+
+        with open(OPENCLAW_CONFIG, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+
+        backup_path = OPENCLAW_CONFIG + ".bak"
+        with open(backup_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+        agent_id = f"tenant-{tenant.chat_id}"
+        chat_id_int = int(tenant.chat_id)
+        changes = []
+
+        # 1. 移除 agent entry
+        agent_list = cfg.get("agents", {}).get("list", [])
+        new_list = [a for a in agent_list if a.get("id") != agent_id]
+        if len(new_list) < len(agent_list):
+            cfg["agents"]["list"] = new_list
+            changes.append(f"agents.list -= {agent_id}")
+
+        # 2. 移除 binding
+        bindings = cfg.get("bindings", [])
+        new_bindings = [b for b in bindings if b.get("agentId") != agent_id]
+        if len(new_bindings) < len(bindings):
+            cfg["bindings"] = new_bindings
+            changes.append(f"bindings -= {agent_id}")
+
+        # 3. 移除 allowFrom
+        allow_from = cfg.get("channels", {}).get("telegram", {}).get("allowFrom", [])
+        if chat_id_int in allow_from:
+            allow_from.remove(chat_id_int)
+            changes.append(f"allowFrom -= {chat_id_int}")
+
+        if not changes:
+            return "⚠️ 該租戶不在 openclaw.json 中"
+
+        tmp = OPENCLAW_CONFIG + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, OPENCLAW_CONFIG)
+
+        return "✅ " + ", ".join(changes)
 
 
 # ─── 工具 ────────────────────────────────────────────────

@@ -100,7 +100,7 @@ BACKUP_EXCLUDE_PATTERNS = [
     "canvas/",
     "skills/marketplace/cache/",
     "devices/",
-    "memory/",
+    "workspace/memory/",
 ]
 
 # ─── 資料類別 ──────────────────────────────────────────────
@@ -566,6 +566,121 @@ class BackupEngine:
             result.duration_ms = int((time.monotonic() - t0) * 1000)
 
         return result
+
+    # ─── 單一租戶還原 ─────────────────────────────────────
+
+    def restore_tenant(self, tenant_id: str, backup_id: str = None,
+                       dry_run: bool = False) -> RestoreResult:
+        """
+        還原單一租戶的資料（workspace + monitoring state）。
+
+        從 L1 備份中只提取屬於該租戶的檔案：
+          - workspaces/{tenant_dir}/...  (workspace 檔案)
+          - monitoring/tenants/{tenant_dir}/... (監控狀態)
+
+        Args:
+            tenant_id: 租戶 ID，如 "telegram:1059505606"
+            backup_id: 備份 ID，None = 最新
+            dry_run:   True = 僅列出不還原
+        """
+        t0 = time.monotonic()
+
+        if backup_id is None:
+            backup_id = self._state.get("last_backup_id")
+
+        result = RestoreResult(
+            backup_id=backup_id or "unknown",
+            timestamp=datetime.now(TZ_GMT8).isoformat(),
+        )
+
+        if not backup_id:
+            result.status = "failed"
+            result.error = "無可還原的備份"
+            return result
+
+        tar_path = os.path.join(BACKUP_DIR, f"backup_{backup_id}.tar.gz")
+        if not os.path.exists(tar_path):
+            result.status = "failed"
+            result.error = f"備份檔不存在: backup_{backup_id}.tar.gz"
+            return result
+
+        # 驗證
+        ok, msg = self.verify_backup(backup_id)
+        if not ok:
+            result.status = "failed"
+            result.error = f"備份驗證失敗: {msg}"
+            return result
+
+        # 租戶目錄前綴
+        tenant_dir = tenant_id.replace(":", "_")
+        prefixes = (
+            f"workspaces/{tenant_dir}/",
+            f"monitoring/tenants/{tenant_dir}/",
+        )
+
+        try:
+            with tarfile.open(tar_path, "r:gz") as tar:
+                members = [
+                    m for m in tar.getmembers()
+                    if m.isfile() and any(m.name.startswith(p) for p in prefixes)
+                ]
+
+                if not members:
+                    result.status = "failed"
+                    result.error = f"備份中無租戶 {tenant_id} 的資料"
+                    return result
+
+                for member in members:
+                    dest = os.path.join(OPENCLAW_ROOT, member.name)
+                    if dry_run:
+                        result.details.append(f"[DRY-RUN] 還原: {member.name}")
+                        result.files_restored += 1
+                        continue
+
+                    try:
+                        os.makedirs(os.path.dirname(dest), exist_ok=True)
+                        tar.extract(member, path=OPENCLAW_ROOT)
+                        result.files_restored += 1
+                        result.details.append(f"✅ {member.name}")
+                    except Exception as exc:
+                        result.files_failed += 1
+                        result.details.append(f"❌ {member.name}: {exc}")
+
+            result.duration_ms = int((time.monotonic() - t0) * 1000)
+            result.status = "success" if result.files_failed == 0 else "partial"
+
+        except Exception as exc:
+            result.status = "failed"
+            result.error = str(exc)
+            result.duration_ms = int((time.monotonic() - t0) * 1000)
+
+        return result
+
+    def list_tenant_files_in_backup(self, tenant_id: str, backup_id: str = None) -> List[str]:
+        """列出備份中某租戶的所有檔案。"""
+        if backup_id is None:
+            backup_id = self._state.get("last_backup_id")
+        if not backup_id:
+            return []
+
+        tar_path = os.path.join(BACKUP_DIR, f"backup_{backup_id}.tar.gz")
+        if not os.path.exists(tar_path):
+            return []
+
+        tenant_dir = tenant_id.replace(":", "_")
+        prefixes = (
+            f"workspaces/{tenant_dir}/",
+            f"monitoring/tenants/{tenant_dir}/",
+        )
+
+        try:
+            with tarfile.open(tar_path, "r:gz") as tar:
+                return [
+                    m.name for m in tar.getmembers()
+                    if m.isfile() and any(m.name.startswith(p) for p in prefixes)
+                ]
+        except Exception:
+            return []
 
     # ─── 查詢 ────────────────────────────────────────────
 
