@@ -194,31 +194,107 @@ def send_menu(sender: TelegramSender) -> bool:
         return False
 
 
+# ─── 費用日報 ─────────────────────────────────────────
+
+def send_usage_report(sender: TelegramSender) -> bool:
+    """發送費用日報"""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from usage_cost_report import get_openclaw_usage, calculate_cost, build_usage_report
+        usage = get_openclaw_usage()
+        cost = calculate_cost(usage)
+        report = build_usage_report(usage, cost, [])
+        if report:
+            sender.send(report)
+            print("✅ 費用日報已發送")
+            return True
+        return False
+    except Exception as e:
+        print(f"⚠️ 費用日報失敗: {e}")
+        return False
+
+
+# ─── Owner / Tenant 判定 ─────────────────────────────
+
+def _find_owner_chat_id(tm) -> str | None:
+    """透過 RBAC 尋找 owner chat_id，回退到第一個租戶"""
+    try:
+        from rbac import RBACManager
+        rbac = RBACManager()
+        for t in tm.get_active_tenants():
+            tenant_roles = rbac._roles.get(t.tenant_id, {})
+            for _uid, user_role in tenant_roles.items():
+                if user_role.role == "owner":
+                    return t.chat_id
+    except Exception:
+        pass
+    tenants = tm.get_active_tenants()
+    return tenants[0].chat_id if tenants else None
+
+
+def _find_tenant_by_workspace(tm, workspace_dir: str):
+    """透過 workspace 路徑找到對應租戶"""
+    real = os.path.realpath(workspace_dir)
+    for t in tm.get_active_tenants():
+        if os.path.realpath(t.workspace_dir()) == real:
+            return t
+    return None
+
+
 # ─── 主程式 ───────────────────────────────────────────
 
 def main() -> int:
     load_env()
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-    if not token or not chat_id:
-        print("❌ TELEGRAM_BOT_TOKEN 或 TELEGRAM_CHAT_ID 未設定")
+    if not token:
+        print("❌ TELEGRAM_BOT_TOKEN 未設定")
         return 1
 
     if not _dedup_check():
         return 0
 
-    # 多租戶支援：如果有 tenant_manager，通知所有啟用的租戶
-    chat_ids = []
+    # handler.js 傳入 workspace_dir 作為第一個參數
+    workspace_dir = sys.argv[1] if len(sys.argv) > 1 else None
+
+    tm = None
     try:
         from tenant_manager import TenantManager
         tm = TenantManager()
-        for tenant in tm.get_active_tenants():
-            if tenant.get_setting("alerts_enabled", True):
-                chat_ids.append(tenant.chat_id)
     except Exception:
         pass
 
+    # ── 多租戶：依 workspace 找出觸發 /reset 的租戶 ──
+    if tm and workspace_dir:
+        tenant = _find_tenant_by_workspace(tm, workspace_dir)
+        if not tenant:
+            print(f"⚠️ 找不到 workspace={workspace_dir} 對應的租戶，回退")
+        else:
+            sender = TelegramSender(token, tenant.chat_id)
+            owner_cid = _find_owner_chat_id(tm)
+            if tenant.chat_id == owner_cid:
+                # Owner: 儀表板(pinned) + 開發日報 + 費用日報 + 主控面板
+                send_monitor_dashboard(sender)
+                send_dev_report(sender)
+                send_usage_report(sender)
+                send_menu(sender)
+            else:
+                # 一般租戶: 主控面板(pinned)
+                _send_pinned_menu(sender)
+            print(f"✅ session-report 完成 (tenant={tenant.chat_id})")
+            return 0
+
+    # ── 回退：無 workspace 或找不到租戶，通知所有啟用的租戶 ──
+    chat_ids = []
+    if tm:
+        for t in tm.get_active_tenants():
+            if t.get_setting("alerts_enabled", True):
+                chat_ids.append(t.chat_id)
+
     if not chat_ids:
+        if not chat_id:
+            print("❌ 無可通知的租戶")
+            return 1
         chat_ids.append(chat_id)
 
     success = 0
@@ -231,6 +307,23 @@ def main() -> int:
             success += 1
 
     return 0 if success > 0 else 1
+
+
+def _send_pinned_menu(sender: TelegramSender) -> bool:
+    """發送主控面板並釘選"""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from telegram_ui import page_home, kb_main_menu
+        text = page_home(compact=True)
+        keyboard = {"inline_keyboard": kb_main_menu()}
+        msg_id = sender.send(text, reply_markup=keyboard)
+        if msg_id:
+            sender.pin(msg_id)
+            print(f"✅ 主控面板已發送並釘選 (msg_id={msg_id})")
+        return True
+    except Exception as e:
+        print(f"⚠️ 主控面板釘選失敗: {e}")
+        return False
 
 
 if __name__ == "__main__":

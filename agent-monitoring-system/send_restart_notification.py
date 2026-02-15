@@ -223,9 +223,9 @@ def main() -> int:
             rbac_mod = RBACManager()
             for t in tenants:
                 tid = t.tenant_id
-                roles = rbac_mod._roles.get(tid, {})
-                for uid, role in roles.items():
-                    if role == "owner":
+                tenant_roles = rbac_mod._roles.get(tid, {})
+                for uid, user_role in tenant_roles.items():
+                    if user_role.role == "owner":
                         owner_chat_id = t.chat_id
                         break
                 if owner_chat_id:

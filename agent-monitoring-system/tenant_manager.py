@@ -365,6 +365,17 @@ class TenantManager:
                 except Exception as e:
                     print(f"⚠️ 無法建立初始檔案 {fname}: {e}")
 
+        # 4. 複製 hooks（從共享 workspace 的 hooks/ 目錄）
+        hooks_src = os.path.join(shared_ws, "hooks")
+        hooks_dst = os.path.join(ws, "hooks")
+        if os.path.isdir(hooks_src) and not os.path.exists(hooks_dst):
+            try:
+                shutil.copytree(hooks_src, hooks_dst)
+                # handler.js 需要更新 WORKSPACE_DIR（由 import.meta.url 自動解析，無需修改）
+                print(f"✅ hooks 已複製到 {hooks_dst}")
+            except Exception as e:
+                print(f"⚠️ 無法複製 hooks: {e}")
+
     def ensure_workspace(self, tenant: Tenant) -> str:
         """確保租戶 workspace 目錄存在，回傳路徑"""
         ws = tenant.workspace_dir()
