@@ -135,7 +135,13 @@ class AgentMonitor:
         self.session_tracker.stop_polling()
         
         print("停止系統整合管理器...")
-        self.integration.stop()
+        try:
+            if hasattr(self.integration, 'stop'):
+                self.integration.stop()
+            else:
+                print("⚠️  整合管理器沒有 stop 方法，跳過停止")
+        except Exception as e:
+            print(f"⚠️  整合管理器停止失敗: {e}")
         
         # 等待主線程結束
         if self.main_thread:
